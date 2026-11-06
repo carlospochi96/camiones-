@@ -1,6 +1,6 @@
 // Guarda la app en el teléfono para que abra sin internet.
 // Al cambiar cualquier archivo, sube el número de VERSION.
-const VERSION = 'camiones-v3';
+const VERSION = 'camiones-v4';
 const ARCHIVOS = ['./', 'index.html', 'app.css', 'app.js', 'db.js', 'pdf.js', 'manifest.webmanifest', 'logo-ale.png', 'icono-180.png', 'icono-192.png', 'icono-512.png'];
 
 self.addEventListener('install', e => {

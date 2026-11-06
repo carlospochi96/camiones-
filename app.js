@@ -3,8 +3,9 @@ import { PDF } from './pdf.js';
 
 // ---------- estado (todo en memoria; se guarda en el teléfono al cambiar) ----------
 const AJ_BASE = { negocio: 'ALE', dueno: '', pctChofer: 50, decimales: 'auto', formato: 'us', moneda: '$', fotosPDF: true };
-const S = { camiones: [], cargas: [], gastos: [], pagos: [], aj: { ...AJ_BASE } };
-const TIPOS_GASTO = ['Petróleo', 'Peaje / casetas', 'Reparación', 'Llantas', 'Aceite', 'Lavado', 'Comida', 'Multa', 'Otro'];
+const S = { camiones: [], cargas: [], gastos: [], pagos: [], reparaciones: [], aj: { ...AJ_BASE } };
+const TIPOS_GASTO = ['Petróleo', 'Peaje / casetas', 'Llantas', 'Aceite', 'Lavado', 'Comida', 'Multa', 'Seguro', 'Otro'];
+const ACEITE_CADA = 10000; // millas entre cambios de aceite, si no se dice otra cosa
 
 // ---------- iconos de línea ----------
 const I = {
@@ -26,7 +27,11 @@ const I = {
   subir: '<path d="M12 16V5M7 9.5l5-5 5 5M5 20h14"/>',
   tabla: '<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M3.5 14.5h17M9.5 4.5v15"/>',
   reloj: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
-  telefono: '<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/>',
+  llave: '<path d="M14.5 6.5a4 4 0 00-5.3 5.3L4 17v3h3l5.2-5.2a4 4 0 005.3-5.3l-2.4 2.4-2.6-.6-.6-2.6z"/>',
+  ruta: '<circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M8 18h6.5a3.5 3.5 0 000-7h-5a3.5 3.5 0 010-7H16"/>',
+  velocimetro: '<path d="M4.5 17a8.5 8.5 0 1115 0"/><path d="M12 13l3.5-4"/><circle cx="12" cy="13.5" r="1.2"/>',
+  alerta: '<path d="M12 4l9 16H3z"/><path d="M12 10v4.5M12 17.5h.01"/>',
+  calendario: '<rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
 };
 const ic = (n, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24">${I[n]}</svg>`;
 const iniciales = s => (s || '?').trim().split(/\s+/).slice(0, 2).map(p => p[0]).join('').toUpperCase();
@@ -37,6 +42,7 @@ const iso = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())
 const deISO = s => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d, 12); };
 const hoy = () => iso(new Date());
 const sumarDias = (s, n) => { const d = deISO(s); d.setDate(d.getDate() + n); return iso(d); };
+const entreDias = (a, b) => Math.round((deISO(b) - deISO(a)) / 864e5);
 const lunesDe = s => sumarDias(s, -((deISO(s).getDay() + 6) % 7));
 const pagoDe = lunes => sumarDias(lunes, 9); // el miércoles siguiente al domingo
 const DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
@@ -44,16 +50,22 @@ const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'o
 const fCorta = s => { const d = deISO(s); return `${d.getDate()} ${MESES[d.getMonth()]}`; };
 const fDia = s => { const d = deISO(s); return `${DIAS[d.getDay()]} ${d.getDate()} ${MESES[d.getMonth()]}`; };
 const fRango = l => `${fCorta(l)} – ${fCorta(sumarDias(l, 6))}`;
+const mayus = s => s[0].toUpperCase() + s.slice(1);
 
-// ---------- dinero ----------
+// ---------- números ----------
 function dinero(n) {
   const neg = n < -0.004; n = Math.abs(Math.round(n * 100) / 100);
   const d = S.aj.decimales === 'no' ? 0 : S.aj.decimales === 'si' ? 2 : (Number.isInteger(n) ? 0 : 2);
-  const us = S.aj.formato === 'us';
-  let [e, f] = n.toFixed(d).split('.');
-  e = e.replace(/\B(?=(\d{3})+(?!\d))/g, us ? ',' : '.');
-  return (neg ? '-' : '') + S.aj.moneda + e + (f ? (us ? '.' : ',') + f : '');
+  return (neg ? '-' : '') + S.aj.moneda + cifra(n, d);
 }
+function cifra(n, d = 0) {
+  const us = S.aj.formato === 'us';
+  let [e, f] = (+n).toFixed(d).split('.');
+  e = e.replace(/\B(?=(\d{3})+(?!\d))/g, us ? ',' : '.');
+  return e + (f ? (us ? '.' : ',') + f : '');
+}
+const millas = n => cifra(Math.round(n)) + ' mi';
+const porMilla = (plata, mi) => mi > 0 ? S.aj.moneda + cifra(plata / mi, 2) + '/mi' : '';
 // Entiende "1.500", "1500,50", "1,500.50", "$ 2.300"
 function numero(txt) {
   let s = String(txt ?? '').replace(/[^\d.,]/g, '');
@@ -68,6 +80,20 @@ function numero(txt) {
   }
   const n = parseFloat(s); return isNaN(n) ? 0 : n;
 }
+// Horas: "12h 33m", "12:33", "12.5"
+function horas(txt) {
+  const s = String(txt ?? '').trim().toLowerCase();
+  if (!s) return 0;
+  let m = s.match(/^(\d+)\s*(?:h|:)\s*(\d{1,2})?\s*m?$/); if (m) return +m[1] + (+(m[2] || 0)) / 60;
+  m = s.match(/^(\d+)\s*m$/); if (m) return +m[1] / 60;
+  return numero(s);
+}
+function fHoras(h) {
+  if (!h) return '';
+  let H = Math.floor(h), M = Math.round((h - H) * 60);
+  if (M === 60) { H++; M = 0; }
+  return `${H}h ${pad(M)}m`;
+}
 const aTexto = n => n ? (S.aj.formato === 'us' ? String(n) : String(n).replace('.', ',')) : '';
 
 // ---------- utilidades ----------
@@ -77,12 +103,14 @@ const nuevoId = () => Date.now().toString(36) + Math.random().toString(36).slice
 const camion = id => S.camiones.find(c => c.id === id);
 const nombreCamion = id => { const c = camion(id); return c ? c.nombre + (c.placa ? ` (${c.placa})` : '') : 'Camión borrado'; };
 const ordenCamiones = () => [...S.camiones].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { numeric: true }));
+const activos = () => ordenCamiones().filter(c => c.activo !== false);
+const suma = (l, f) => l.reduce((t, x) => t + (+(typeof f === 'function' ? f(x) : x[f]) || 0), 0);
+const ruta = c => c.origen || c.destino ? `${c.origen || '?'} → ${c.destino || '?'}` : (c.detalle || 'Carga');
 
 function avisar(msg) {
   const a = $('#aviso'); a.textContent = msg; a.classList.add('ver');
   clearTimeout(avisar.t); avisar.t = setTimeout(() => a.classList.remove('ver'), 2600);
 }
-
 async function guardar(tabla, obj) {
   const lista = S[tabla], i = lista.findIndex(x => x.id === obj.id);
   if (i >= 0) lista[i] = obj; else lista.push(obj);
@@ -92,6 +120,41 @@ async function borrar(tabla, id) {
   S[tabla] = S[tabla].filter(x => x.id !== id);
   await db.borrar(tabla, id);
 }
+
+// ---------- reparaciones y estado de los camiones ----------
+const finRep = r => sumarDias(r.inicio, Math.max(1, r.dias || 1) - 1);  // último día parado
+// "listo" = el día que se marcó que ya está trabajando (corta la reparación aunque falten días)
+const enRep = (r, dia) => r.inicio <= dia && finRep(r) >= dia && !(r.listo && r.listo <= dia);
+const repActiva = (camionId, dia = hoy()) => S.reparaciones.find(r => r.camionId === camionId && enRep(r, dia));
+// días parados de una reparación dentro de un rango
+const diasEn = (r, desde, hasta) => {
+  const a = r.inicio > desde ? r.inicio : desde, b = finRep(r) < hasta ? finRep(r) : hasta;
+  return a > b ? 0 : entreDias(a, b) + 1;
+};
+const pillEstado = c => {
+  if (c.activo === false) return '<span class="pill gris">Fuera de servicio</span>';
+  return repActiva(c.id) ? `<span class="pill taller">${ic('llave')} En reparación</span>` : `<span class="pill ok">${ic('check')} Trabajando</span>`;
+};
+
+// avisos de papeles y mantenimiento
+function millasDesde(camionId, fecha) { return suma(S.cargas.filter(x => x.camionId === camionId && (!fecha || x.fecha >= fecha)), 'millas'); }
+function avisosDe(c) {
+  if (c.activo === false) return [];
+  const a = [], h = hoy();
+  for (const [campo, nombre] of [['seguro', 'Seguro'], ['registro', 'Registro / placa'], ['inspeccion', 'Inspección anual']]) {
+    if (!c[campo]) continue;
+    const d = entreDias(h, c[campo]);
+    if (d < 0) a.push({ txt: `${nombre} vencido hace ${-d} ${-d === 1 ? 'día' : 'días'}`, grave: true });
+    else if (d <= 30) a.push({ txt: `${nombre} vence en ${d} ${d === 1 ? 'día' : 'días'}`, grave: d <= 7 });
+  }
+  if (c.aceiteFecha) {
+    const cada = c.aceiteCada || ACEITE_CADA, hechas = millasDesde(c.id, c.aceiteFecha);
+    if (hechas >= cada) a.push({ txt: `Toca cambio de aceite (${millas(hechas)} desde el último)`, grave: true });
+    else if (hechas >= cada * .9) a.push({ txt: `Cambio de aceite pronto: faltan ${millas(cada - hechas)}`, grave: false });
+  }
+  return a;
+}
+const todosLosAvisos = () => activos().flatMap(c => avisosDe(c).map(x => ({ ...x, c })));
 
 // ---------- cálculo de la semana ----------
 // Agrupa por camión + chofer. limpio = cobrado - petróleo - gastos compartidos; luego se reparte.
@@ -103,9 +166,10 @@ function liquidacion(lunes) {
     if (!grupos.has(k)) grupos.set(k, { k, camionId, chofer: chofer || '', cargas: [], gastos: [], soloDueno: [] });
     return grupos.get(k);
   };
+  // las reparaciones con costo cuentan como gasto en la semana en que empezaron
+  const deTaller = S.reparaciones.filter(r => r.costo > 0).map(r => ({ id: r.id, fecha: r.inicio, camionId: r.camionId, chofer: r.chofer, tipo: 'Reparación', detalle: r.detalle, monto: r.costo, compartido: r.compartido, creado: r.creado }));
   S.cargas.filter(dentro).forEach(c => grupo(c.camionId, c.chofer).cargas.push(c));
-  S.gastos.filter(dentro).forEach(g => { const gr = grupo(g.camionId, g.chofer); (g.compartido ? gr.gastos : gr.soloDueno).push(g); });
-  const suma = (l, f) => l.reduce((t, x) => t + (+x[f] || 0), 0);
+  [...S.gastos, ...deTaller].filter(dentro).forEach(g => { const gr = grupo(g.camionId, g.chofer); (g.compartido ? gr.gastos : gr.soloDueno).push(g); });
   const porFecha = (a, b) => a.fecha.localeCompare(b.fecha) || a.creado - b.creado;
   return [...grupos.values()].map(g => {
     g.cargas.sort(porFecha); g.gastos.sort(porFecha); g.soloDueno.sort(porFecha);
@@ -113,11 +177,14 @@ function liquidacion(lunes) {
     g.pct = g.pago ? g.pago.pct : S.aj.pctChofer;
     g.cobrado = suma(g.cargas, 'cobrado');
     g.petroleo = suma(g.cargas, 'petroleo');
+    g.millas = suma(g.cargas, 'millas');
+    g.horas = suma(g.cargas, 'horas');
     g.otros = suma(g.gastos, 'monto');
     g.limpio = g.cobrado - g.petroleo - g.otros;
     g.paraChofer = Math.round(g.limpio * g.pct) / 100;
     g.paraDueno = g.limpio - g.paraChofer;
     g.gastoDueno = suma(g.soloDueno, 'monto');
+    g.diasTaller = suma(S.reparaciones.filter(r => r.camionId === g.camionId), r => diasEn(r, lunes, fin));
     return g;
   }).sort((a, b) => nombreCamion(a.camionId).localeCompare(nombreCamion(b.camionId), 'es', { numeric: true }));
 }
@@ -125,22 +192,20 @@ function liquidacion(lunes) {
 // ---------- fotos ----------
 function comprimir(archivo, max = 1400, calidad = .72) {
   return new Promise((ok, mal) => {
-    const url = URL.createObjectURL(archivo), img = new Image();
-    img.onload = () => {
-      const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
-      const w = Math.round(img.naturalWidth * k), h = Math.round(img.naturalHeight * k);
+    const url = URL.createObjectURL(archivo), im = new Image();
+    im.onload = () => {
+      const k = Math.min(1, max / Math.max(im.naturalWidth, im.naturalHeight));
+      const w = Math.round(im.naturalWidth * k), h = Math.round(im.naturalHeight * k);
       const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
-      const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, w, h); g.drawImage(img, 0, 0, w, h);
+      const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, w, h); g.drawImage(im, 0, 0, w, h);
       URL.revokeObjectURL(url);
       ok({ d: cv.toDataURL('image/jpeg', calidad), w, h });
     };
-    img.onerror = () => { URL.revokeObjectURL(url); mal(new Error('No se pudo leer la foto')); };
-    img.src = url;
+    im.onerror = () => { URL.revokeObjectURL(url); mal(new Error('No se pudo leer la foto')); };
+    im.src = url;
   });
 }
-function verFoto(d) {
-  const v = $('#visor'); v.querySelector('img').src = d; v.hidden = false;
-}
+function verFoto(d) { const v = $('#visor'); v.querySelector('img').src = d; v.hidden = false; }
 
 // ---------- compartir / descargar archivos ----------
 function descargar(blob, nombre) {
@@ -160,6 +225,7 @@ async function compartir(blob, nombre) {
 let vista = 'cargas';
 let semana = lunesDe(hoy());                     // semana que se ve en Cargas
 let semanaPago = sumarDias(lunesDe(hoy()), -7);  // semana que se paga este miércoles
+let semanaTaller = lunesDe(hoy());               // semana que se ve en Reparación
 
 function ir(v) {
   vista = v;
@@ -168,19 +234,18 @@ function ir(v) {
   window.scrollTo(0, 0);
 }
 function pintar() {
-  const t = { cargas: 'Cargas', pagos: 'Pagos', camiones: 'Camiones', mas: 'Ajustes' }[vista];
-  $('#titulo').textContent = t;
-  const fh = fDia(hoy());
-  $('#negocio').textContent = (S.aj.negocio && S.aj.negocio !== 'ALE' ? S.aj.negocio + ' · ' : '') + fh[0].toUpperCase() + fh.slice(1);
-  $('#vista').innerHTML = ({ cargas: vistaCargas, pagos: vistaPagos, camiones: vistaCamiones, mas: vistaMas })[vista]();
+  $('#titulo').textContent = { cargas: 'Cargas', pagos: 'Pagos', camiones: 'Camiones', taller: 'Reparación', mas: 'Ajustes' }[vista];
+  $('#negocio').textContent = (S.aj.negocio && S.aj.negocio !== 'ALE' ? S.aj.negocio + ' · ' : '') + mayus(fDia(hoy()));
+  $('#vista').innerHTML = ({ cargas: vistaCargas, pagos: vistaPagos, camiones: vistaCamiones, taller: vistaTaller, mas: vistaMas })[vista]();
 }
 
-const selectorSemana = (l, a) => `
+const selectorSemana = (l, a, texto) => `
   <div class="semana">
     <button class="flecha" data-a="${a}" data-d="-7" aria-label="Semana anterior">${ic('izq')}</button>
-    <div><b>${fRango(l)}</b><small>Se paga el miércoles ${fCorta(pagoDe(l))}</small></div>
+    <div><b>${fRango(l)}</b><small>${texto ?? `Se paga el miércoles ${fCorta(pagoDe(l))}`}</small></div>
     <button class="flecha" data-a="${a}" data-d="7" aria-label="Semana siguiente">${ic('der')}</button>
   </div>`;
+const stat = (icono, txt, valor, color = '') => `<div class="stat"><span class="ico ${color}">${ic(icono)}</span><div><small>${txt}</small><b class="${color}">${valor}</b></div></div>`;
 
 // ---------- vista: cargas ----------
 function vistaCargas() {
@@ -193,18 +258,22 @@ function vistaCargas() {
     </div>`;
   const fin = sumarDias(semana, 6), dentro = x => x.fecha >= semana && x.fecha <= fin;
   const cargas = S.cargas.filter(dentro), gastos = S.gastos.filter(dentro);
-  const cobrado = cargas.reduce((t, c) => t + c.cobrado, 0), petroleo = cargas.reduce((t, c) => t + c.petroleo, 0);
-  const otros = gastos.filter(g => g.compartido).reduce((t, g) => t + g.monto, 0);
+  const cobrado = suma(cargas, 'cobrado'), petroleo = suma(cargas, 'petroleo'), mi = suma(cargas, 'millas');
+  const otros = suma(gastos.filter(g => g.compartido), 'monto') + suma(S.reparaciones.filter(r => r.compartido && dentro({ fecha: r.inicio })), 'costo');
   const dias = [...new Set([...cargas, ...gastos].map(x => x.fecha))].sort().reverse();
-  const actual = semana === lunesDe(hoy());
+  const avisos = todosLosAvisos(), enTaller = activos().filter(c => repActiva(c.id));
   return `
+    ${avisos.length || enTaller.length ? `<button class="banner gris toque" data-a="irCamiones">${ic('alerta')} ${[
+      enTaller.length ? `${enTaller.length} en reparación` : '', avisos.length ? `${avisos.length} ${avisos.length === 1 ? 'aviso' : 'avisos'} de papeles o aceite` : ''].filter(Boolean).join(' · ')} ${ic('der')}</button>` : ''}
     ${selectorSemana(semana, 'semana')}
-    ${actual ? '' : '<button class="link centro" data-a="semanaHoy">Volver a esta semana</button>'}
-    <div class="stats">
-      <div class="stat"><span class="ico">${ic('caja')}</span><div><small>Cargas</small><b>${cargas.length}</b></div></div>
-      <div class="stat"><span class="ico">${ic('dolar')}</span><div><small>Cobrado</small><b>${dinero(cobrado)}</b></div></div>
-      <div class="stat"><span class="ico rojo">${ic('petroleo')}</span><div><small>Petróleo</small><b class="rojo">${dinero(-petroleo)}</b></div></div>
-      <div class="stat"><span class="ico verde">${ic('cartera')}</span><div><small>Limpio</small><b class="verde">${dinero(cobrado - petroleo - otros)}</b></div></div>
+    ${semana === lunesDe(hoy()) ? '' : '<button class="link centro" data-a="semanaHoy">Volver a esta semana</button>'}
+    <div class="stats seis">
+      ${stat('caja', 'Cargas', cargas.length)}
+      ${stat('dolar', 'Cobrado', dinero(cobrado))}
+      ${stat('ruta', 'Millas', cifra(Math.round(mi)))}
+      ${stat('velocimetro', 'Por milla', mi ? porMilla(cobrado, mi) : '—')}
+      ${stat('petroleo', 'Petróleo', dinero(-petroleo), 'rojo')}
+      ${stat('cartera', 'Limpio', dinero(cobrado - petroleo - otros), 'verde')}
     </div>
     <div class="botones">
       <button class="btn grande" data-a="nuevaCarga">${ic('mas')} Nueva carga</button>
@@ -220,11 +289,12 @@ function vistaCargas() {
 }
 const filaCarga = c => {
   const cam = camion(c.camionId);
+  const datos = [c.viaje, c.millas ? millas(c.millas) : '', c.horas ? fHoras(c.horas) : ''].filter(Boolean).join(' · ');
   return `
-  <button class="fila" data-a="editarCarga" data-id="${c.id}">
+  <button class="fila larga" data-a="editarCarga" data-id="${c.id}">
     ${c.fotos?.[0] ? `<img class="mini" src="${c.fotos[0].d}" alt="">` : `<span class="mini icono">${ic('caja')}</span>`}
-    <span class="txt"><b>${esc(c.detalle || 'Carga')}</b><small>${esc(c.chofer || 'Sin chofer')} · ${esc(cam ? cam.nombre : 'Camión borrado')}</small></span>
-    <span class="num"><b>${dinero(c.cobrado)}</b><small class="rojo">${dinero(-c.petroleo)}</small><small class="verde">${dinero(c.cobrado - c.petroleo)}</small></span>
+    <span class="txt"><b>${esc(ruta(c))}</b><small>${esc(c.chofer || 'Sin chofer')} · ${esc(cam ? cam.nombre : 'Camión borrado')}</small>${datos ? `<small>${esc(datos)}</small>` : ''}</span>
+    <span class="num"><b>${dinero(c.cobrado)}</b>${c.millas ? `<small>${porMilla(c.cobrado, c.millas)}</small>` : ''}<small class="rojo">${dinero(-c.petroleo)}</small><small class="verde">${dinero(c.cobrado - c.petroleo)}</small></span>
   </button>`;
 };
 const filaGasto = g => `
@@ -237,8 +307,7 @@ const filaGasto = g => `
 // ---------- vista: pagos ----------
 function vistaPagos() {
   const lista = liquidacion(semanaPago), pago = pagoDe(semanaPago), h = hoy();
-  const totalChofer = lista.reduce((t, g) => t + g.paraChofer, 0);
-  const totalDueno = lista.reduce((t, g) => t + g.paraDueno - g.gastoDueno, 0);
+  const totalChofer = suma(lista, 'paraChofer'), totalDueno = suma(lista, g => g.paraDueno - g.gastoDueno);
   const estado = h === pago ? `<div class="banner hoy">${ic('dolar')} Hoy es miércoles: toca pagar esta semana</div>`
     : h < pago && h > sumarDias(semanaPago, 6) ? `<div class="banner">${ic('reloj')} Se paga el miércoles ${fCorta(pago)}</div>`
       : h <= sumarDias(semanaPago, 6) ? `<div class="banner gris">${ic('reloj')} Semana en curso: se va sumando con cada carga</div>` : '';
@@ -247,8 +316,8 @@ function vistaPagos() {
     ${estado}
     ${lista.length ? `
       <div class="stats">
-        <div class="stat"><span class="ico">${ic('persona')}</span><div><small>Para choferes</small><b>${dinero(totalChofer)}</b></div></div>
-        <div class="stat"><span class="ico verde">${ic('cartera')}</span><div><small>Para el dueño</small><b class="verde">${dinero(totalDueno)}</b></div></div>
+        ${stat('persona', 'Para choferes', dinero(totalChofer))}
+        ${stat('cartera', 'Para el dueño', dinero(totalDueno), 'verde')}
       </div>
       ${lista.map(tarjetaPago).join('')}
       <label class="check radio"><input type="checkbox" data-a="fotosPDF" ${S.aj.fotosPDF ? 'checked' : ''}> Poner las fotos de las cargas en el PDF</label>`
@@ -262,6 +331,11 @@ function tarjetaPago(g) {
       <span class="avatar">${esc(iniciales(g.chofer))}</span>
       <div class="quien"><b>${esc(g.chofer || 'Sin chofer')}</b><small>${esc(nombreCamion(g.camionId))} · ${g.cargas.length} ${g.cargas.length === 1 ? 'carga' : 'cargas'}</small></div>
       ${pagado ? `<span class="pill ok">${ic('check')} Pagado</span>` : '<span class="pill pend">Pendiente</span>'}
+    </div>
+    <div class="chips">
+      ${g.millas ? `<span>${ic('ruta')} ${millas(g.millas)}</span><span>${ic('velocimetro')} ${porMilla(g.cobrado, g.millas)}</span>` : ''}
+      ${g.horas ? `<span>${ic('reloj')} ${fHoras(g.horas)}</span>` : ''}
+      ${g.diasTaller ? `<span class="naranja">${ic('llave')} ${g.diasTaller} ${g.diasTaller === 1 ? 'día' : 'días'} en reparación</span>` : ''}
     </div>
     <div class="linea"><span>Cobrado</span><span>${dinero(g.cobrado)}</span></div>
     <div class="linea"><span>Petróleo</span><span class="rojo">${dinero(-g.petroleo)}</span></div>
@@ -283,22 +357,95 @@ function tarjetaPago(g) {
 
 // ---------- vista: camiones ----------
 function vistaCamiones() {
-  const lista = ordenCamiones(), activos = lista.filter(c => c.activo !== false), fuera = lista.filter(c => c.activo === false);
-  const fila = c => `
-    <button class="fila" data-a="editarCamion" data-id="${c.id}">
-      <span class="mini icono">${ic('camion')}</span>
-      <span class="txt"><b>${esc(c.nombre)}${c.placa ? `<span class="placa">${esc(c.placa)}</span>` : ''}</b><small>${esc(c.chofer || 'Sin chofer')}${c.telefono ? ' · ' + esc(c.telefono) : ''}</small></span>
-      <span class="num"><small>${S.cargas.filter(x => x.camionId === c.id).length} cargas</small></span>
+  const lista = ordenCamiones(), act = lista.filter(c => c.activo !== false), fuera = lista.filter(c => c.activo === false);
+  const fila = c => {
+    const rep = repActiva(c.id), av = avisosDe(c);
+    return `
+    <button class="fila larga" data-a="editarCamion" data-id="${c.id}">
+      <span class="mini icono ${rep ? 'gasto' : ''}">${ic(rep ? 'llave' : 'camion')}</span>
+      <span class="txt"><b>${esc(c.nombre)}${c.placa ? `<span class="placa">${esc(c.placa)}</span>` : ''}</b>
+        <small>${ic('persona', 'mini-i')} ${esc(c.chofer || 'Sin chofer')}${c.telefono ? ' · ' + esc(c.telefono) : ''}</small>
+        <span class="estado">${pillEstado(c)}</span>
+        ${rep ? `<small class="naranja">Vuelve a trabajar el ${fDia(sumarDias(finRep(rep), 1))}${rep.detalle ? ' · ' + esc(rep.detalle) : ''}</small>` : ''}
+        ${av.map(x => `<small class="${x.grave ? 'rojo' : 'naranja'}">${ic('alerta', 'mini-i')} ${esc(x.txt)}</small>`).join('')}
+      </span>
       ${ic('der', 'chev')}
     </button>`;
+  };
+  const trabajando = act.filter(c => !repActiva(c.id)).length;
   return `
     <div class="stats">
-      <div class="stat"><span class="ico">${ic('camion')}</span><div><small>En servicio</small><b>${activos.length}</b></div></div>
-      <div class="stat"><span class="ico">${ic('persona')}</span><div><small>Choferes</small><b>${new Set(activos.map(c => c.chofer).filter(Boolean)).size}</b></div></div>
+      ${stat('camion', 'Trabajando', trabajando, 'verde')}
+      ${stat('llave', 'En reparación', act.length - trabajando, act.length - trabajando ? 'naranja' : '')}
     </div>
     <button class="btn grande" data-a="nuevoCamion">${ic('mas')} Agregar camión</button>
-    ${activos.length ? `<h3 class="dia">En servicio</h3><div class="grupo">${activos.map(fila).join('')}</div>` : '<p class="nada">Todavía no hay camiones.</p>'}
+    ${act.length ? `<h3 class="dia">En servicio</h3><div class="grupo">${act.map(fila).join('')}</div>` : '<p class="nada">Todavía no hay camiones.</p>'}
     ${fuera.length ? `<h3 class="dia">Fuera de servicio / vendidos</h3><div class="grupo">${fuera.map(fila).join('')}</div>` : ''}`;
+}
+
+// ---------- vista: reparación ----------
+function vistaTaller() {
+  if (!S.camiones.length) return '<p class="nada">Primero agrega tus camiones.</p>';
+  const h = hoy(), l = semanaTaller, fin = sumarDias(l, 6);
+  const enTaller = S.reparaciones.filter(r => enRep(r, h) && camion(r.camionId)?.activo !== false);
+  const deSemana = S.reparaciones.filter(r => diasEn(r, l, fin) > 0).sort((a, b) => a.inicio.localeCompare(b.inicio));
+  const mesIni = h.slice(0, 8) + '01', mesFin = sumarDias(sumarDias(mesIni, 32).slice(0, 8) + '01', -1);
+  const delMes = S.reparaciones.filter(r => diasEn(r, mesIni, mesFin) > 0);
+  const anio = h.slice(0, 4), delAnio = S.reparaciones.filter(r => r.inicio.startsWith(anio));
+  const act = activos();
+  const filaRep = (r, desde, hasta) => {
+    const dias = desde ? diasEn(r, desde, hasta) : r.dias;
+    return `
+    <button class="fila" data-a="editarRep" data-id="${r.id}">
+      <span class="mini icono gasto">${ic('llave')}</span>
+      <span class="txt"><b>${esc(nombreCamion(r.camionId))}</b><small>${esc(r.detalle || 'Reparación')}${r.taller ? ' · ' + esc(r.taller) : ''}</small>
+        <small>${fCorta(r.inicio)} al ${fCorta(finRep(r))} · ${dias} ${dias === 1 ? 'día parado' : 'días parado'}</small></span>
+      <span class="num">${r.costo ? `<b class="rojo">${dinero(-r.costo)}</b><small>${r.compartido ? 'Mitad y mitad' : 'Solo dueño'}</small>` : '<small>Sin costo</small>'}</span>
+    </button>`;
+  };
+  const porCamion = act.map(c => {
+    const rs = delAnio.filter(r => r.camionId === c.id);
+    return { c, veces: rs.length, dias: suma(rs, 'dias'), costo: suma(rs, 'costo') };
+  }).filter(x => x.veces);
+  return `
+    <div class="stats">
+      ${stat('camion', 'Trabajando', act.filter(c => !repActiva(c.id)).length, 'verde')}
+      ${stat('llave', 'En reparación', enTaller.length, enTaller.length ? 'naranja' : '')}
+      ${stat('calendario', 'Días parados este mes', suma(delMes, r => diasEn(r, mesIni, mesFin)))}
+      ${stat('dolar', 'Reparaciones este mes', dinero(suma(delMes.filter(r => r.inicio >= mesIni), 'costo')), 'rojo')}
+    </div>
+    <button class="btn grande" data-a="nuevaRep">${ic('mas')} Anotar reparación</button>
+
+    ${enTaller.length ? `<h3 class="dia">Ahora en reparación</h3>
+      ${enTaller.map(r => {
+        const quedan = entreDias(h, finRep(r)) + 1;
+        return `<div class="tarjeta taller">
+          <div class="cab"><span class="avatar naranja">${ic('llave')}</span>
+            <div class="quien"><b>${esc(nombreCamion(r.camionId))}</b><small>${esc(r.detalle || 'Reparación')}${r.taller ? ' · ' + esc(r.taller) : ''}</small></div>
+            <span class="pill taller">${quedan} ${quedan === 1 ? 'día' : 'días'}</span></div>
+          <div class="linea"><span>Parado desde</span><span>${fDia(r.inicio)}</span></div>
+          <div class="linea"><span>Vuelve a trabajar</span><span><b>${fDia(sumarDias(finRep(r), 1))}</b></span></div>
+          ${r.costo ? `<div class="linea"><span>Costo</span><span class="rojo">${dinero(r.costo)}</span></div>` : ''}
+          <div class="acciones una"><button class="btn ok" data-a="repLista" data-id="${r.id}">${ic('check')} Ya está trabajando</button>
+          <button class="btn suave" data-a="editarRep" data-id="${r.id}">Cambiar días</button></div>
+        </div>`;
+      }).join('')}` : ''}
+
+    <h3 class="dia">Estado de los camiones</h3>
+    <div class="grupo">${act.map(c => `
+      <div class="fila quieta"><span class="mini icono ${repActiva(c.id) ? 'gasto' : ''}">${ic(repActiva(c.id) ? 'llave' : 'camion')}</span>
+        <span class="txt"><b>${esc(c.nombre)}${c.placa ? `<span class="placa">${esc(c.placa)}</span>` : ''}</b><small>${esc(c.chofer || 'Sin chofer')}</small></span>
+        <span class="num">${pillEstado(c)}</span></div>`).join('')}</div>
+
+    <h3 class="dia">Reparaciones por semana</h3>
+    ${selectorSemana(l, 'semanaTaller', deSemana.length ? `${suma(deSemana, r => diasEn(r, l, fin))} días parados en total` : 'Sin reparaciones esta semana')}
+    ${deSemana.length ? `<div class="grupo">${deSemana.map(r => filaRep(r, l, fin)).join('')}</div>` : ''}
+
+    ${porCamion.length ? `<h3 class="dia">Cuenta del año ${anio} por camión</h3>
+      <div class="grupo">${porCamion.map(x => `
+        <div class="fila quieta"><span class="mini icono">${ic('camion')}</span>
+          <span class="txt"><b>${esc(x.c.nombre)}</b><small>${x.veces} ${x.veces === 1 ? 'reparación' : 'reparaciones'} · ${x.dias} ${x.dias === 1 ? 'día parado' : 'días parado'}</small></span>
+          <span class="num"><b class="rojo">${dinero(x.costo)}</b></span></div>`).join('')}</div>` : ''}`;
 }
 
 // ---------- vista: ajustes ----------
@@ -336,18 +483,17 @@ function vistaMas() {
     </div>
     <div class="tarjeta">
       <h3>Excel</h3>
-      <p class="ayuda">Saca todas las cargas y gastos en un archivo que abre Excel o Numbers.</p>
+      <p class="ayuda">Saca todas las cargas, gastos y reparaciones en un archivo que abre Excel o Numbers.</p>
       <button class="btn suave" data-a="excel">${ic('tabla')} Exportar a Excel</button>
     </div>
     <div class="tarjeta">
-      <h3>Instalar en el iPhone</h3>
-      <p class="ayuda">Abre esta página en <b>Safari</b>, toca el botón <b>Compartir</b> (el cuadrito con la flecha hacia arriba) y elige <b>“Agregar a pantalla de inicio”</b>. Funciona sin internet.</p>
+      <h3>Instalar en el teléfono</h3>
+      <p class="ayuda"><b>iPhone:</b> abre esta página en <b>Safari</b>, toca <b>Compartir</b> (el cuadrito con la flecha hacia arriba) y elige <b>“Agregar a pantalla de inicio”</b>.<br><b>Android:</b> ábrela en <b>Chrome</b>, toca los <b>tres puntitos ⋮</b> y elige <b>“Instalar app”</b> o <b>“Agregar a pantalla principal”</b>.</p>
     </div>
-    <p class="pie">${S.cargas.length} cargas · ${S.gastos.length} gastos · ${S.camiones.length} camiones guardados en este teléfono</p>`;
+    <p class="pie">${S.cargas.length} cargas · ${S.gastos.length} gastos · ${S.reparaciones.length} reparaciones · ${S.camiones.length} camiones guardados en este aparato</p>`;
 }
 
 // ---------- hoja (formulario que sube desde abajo) ----------
-let alCerrar = null;
 function abrirHoja(titulo, html) {
   $('#hojaTitulo').textContent = titulo;
   $('#hojaCuerpo').innerHTML = html;
@@ -358,7 +504,6 @@ function abrirHoja(titulo, html) {
 function cerrarHoja() {
   $('#hoja').classList.remove('abierta');
   setTimeout(() => { $('#hoja').hidden = true; $('#hojaCuerpo').innerHTML = ''; }, 220);
-  alCerrar = null;
 }
 const opcionesCamion = sel => ordenCamiones().filter(c => c.activo !== false || c.id === sel)
   .map(c => `<option value="${c.id}" ${c.id === sel ? 'selected' : ''}>${esc(c.nombre)}${c.placa ? ' (' + esc(c.placa) + ')' : ''}</option>`).join('');
@@ -366,6 +511,7 @@ const avisoPagada = fecha => {
   const l = lunesDe(fecha);
   return S.pagos.some(p => p.lunes === l) ? '<div class="banner gris">Ojo: esa semana ya tiene pagos marcados.</div>' : '';
 };
+const lugares = () => `<datalist id="lugares">${[...new Set(S.cargas.flatMap(c => [c.origen, c.destino]).filter(Boolean))].sort().map(x => `<option value="${esc(x)}">`).join('')}</datalist>`;
 
 // fotos del formulario abierto
 let fotosForm = [], reciboForm = null;
@@ -383,69 +529,162 @@ function pintarRecibo() {
 function formCarga(c) {
   const nuevo = !c;
   const ultimo = [...S.cargas].sort((a, b) => b.creado - a.creado)[0];
-  c = c || { fecha: hoy(), camionId: ultimo && camion(ultimo.camionId)?.activo !== false ? ultimo.camionId : ordenCamiones().find(x => x.activo !== false)?.id, cobrado: 0, petroleo: 0, fotos: [] };
+  c = c || { fecha: hoy(), camionId: ultimo && camion(ultimo.camionId)?.activo !== false ? ultimo.camionId : activos()[0]?.id, cobrado: 0, petroleo: 0, fotos: [], tipo: 'Spot', origen: ultimo?.origen || '' };
   if (nuevo) c.chofer = camion(c.camionId)?.chofer || '';
   fotosForm = [...(c.fotos || [])]; reciboForm = c.recibo || null;
+  const rep = nuevo ? repActiva(c.camionId, c.fecha) : null;
   abrirHoja(nuevo ? 'Nueva carga' : 'Editar carga', `
     <form id="formCarga" data-id="${c.id || ''}">
       ${nuevo ? '' : avisoPagada(c.fecha)}
-      <label>Fecha<input type="date" name="fecha" value="${c.fecha}" required></label>
+      ${rep ? '<div class="banner gris">Ojo: ese camión está anotado en reparación ese día.</div>' : ''}
+      <div class="dos">
+        <label>Fecha<input type="date" name="fecha" value="${c.fecha}" required></label>
+        <label>Tipo<select name="tipo">${['Spot', 'Contrato', 'Otro'].map(t => `<option ${t === (c.tipo || 'Spot') ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+      </div>
       <label>Camión<select name="camionId" data-a="cambiaCamion">${opcionesCamion(c.camionId)}</select></label>
       <label>Chofer<input name="chofer" value="${esc(c.chofer)}" placeholder="Nombre del chofer"></label>
-      <label>Carga / destino <small>(opcional)</small><input name="detalle" value="${esc(c.detalle)}" placeholder="Ej: arena a la obra de Juan"></label>
-      <label>Cobrado por la carga<input name="cobrado" inputmode="decimal" value="${aTexto(c.cobrado)}" placeholder="0" data-a="calc"></label>
+      <label>ID del viaje <small>(opcional)</small><input name="viaje" value="${esc(c.viaje)}" placeholder="Ej: T-11343S428" autocapitalize="characters"></label>
+      <label>Sale de<input name="origen" value="${esc(c.origen)}" placeholder="Ej: BNA5 Nashville, TN" list="lugares"></label>
+      <label>Llega a<input name="destino" value="${esc(c.destino || (c.origen ? '' : c.detalle || ''))}" placeholder="Ej: HSV1 Madison, AL" list="lugares"></label>
+      ${lugares()}
+      <div class="dos">
+        <label>Millas<input name="millas" inputmode="decimal" value="${aTexto(c.millas)}" placeholder="0" data-a="calc"></label>
+        <label>Horas trabajadas<input name="horas" value="${fHoras(c.horas)}" placeholder="Ej: 9h 30m" data-a="calc"></label>
+      </div>
+      <label>Pago de la carga<input name="cobrado" inputmode="decimal" value="${aTexto(c.cobrado)}" placeholder="0" data-a="calc"></label>
       <label>Petróleo usado en esta carga<input name="petroleo" inputmode="decimal" value="${aTexto(c.petroleo)}" placeholder="0" data-a="calc"></label>
-      <div class="limpio"><span>Limpio de esta carga</span><b id="limpio">${dinero(c.cobrado - c.petroleo)}</b></div>
+      <div class="cuenta" id="cuenta"></div>
       <div class="campo"><span>Fotos de la carga</span><div class="fotos" id="fotos"></div></div>
       <div class="campo"><span>Recibo del petróleo <small>(opcional)</small></span><div class="fotos" id="recibo"></div></div>
       <button class="btn grande" type="submit">${ic('check')} Guardar carga</button>
       ${nuevo ? '' : '<button class="btn borrar" type="button" data-a="borrarCarga">Borrar esta carga</button>'}
     </form>`);
-  pintarFotos(); pintarRecibo();
+  pintarFotos(); pintarRecibo(); calcCarga();
+}
+function calcCarga() {
+  const f = $('#formCarga'); if (!f) return;
+  const cob = numero(f.cobrado.value), pet = numero(f.petroleo.value), mi = numero(f.millas.value), hr = horas(f.horas.value);
+  $('#cuenta').innerHTML = `
+    <div><small>Por milla</small><b>${mi ? porMilla(cob, mi) : '—'}</b></div>
+    <div><small>Por hora</small><b>${hr ? S.aj.moneda + cifra(cob / hr, 2) + '/h' : '—'}</b></div>
+    <div class="verde"><small>Limpio</small><b>${dinero(cob - pet)}</b></div>`;
 }
 
 function formGasto(g) {
   const nuevo = !g;
-  g = g || { fecha: hoy(), camionId: ordenCamiones().find(x => x.activo !== false)?.id, tipo: TIPOS_GASTO[1], monto: 0, compartido: true };
+  g = g || { fecha: hoy(), camionId: activos()[0]?.id, tipo: TIPOS_GASTO[1], monto: 0, compartido: true };
   reciboForm = g.recibo || null;
   abrirHoja(nuevo ? 'Otro gasto' : 'Editar gasto', `
     <form id="formGasto" data-id="${g.id || ''}">
       ${nuevo ? '' : avisoPagada(g.fecha)}
-      <p class="ayuda">El petróleo de cada carga va en la carga. Aquí van los demás gastos: peajes, reparaciones, llantas…</p>
+      <p class="ayuda">El petróleo de cada carga va en la carga, y las reparaciones en la pestaña <b>Reparación</b>. Aquí van los demás gastos: peajes, llantas, multas…</p>
       <label>Fecha<input type="date" name="fecha" value="${g.fecha}" required></label>
       <label>Camión<select name="camionId">${opcionesCamion(g.camionId)}</select></label>
-      <label>Tipo de gasto<select name="tipo">${TIPOS_GASTO.map(t => `<option ${t === g.tipo ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+      <label>Tipo de gasto<select name="tipo">${[...new Set([...TIPOS_GASTO, g.tipo])].map(t => `<option ${t === g.tipo ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label>
       <label>Detalle <small>(opcional)</small><input name="detalle" value="${esc(g.detalle)}"></label>
       <label>Monto<input name="monto" inputmode="decimal" value="${aTexto(g.monto)}" placeholder="0"></label>
-      <div class="campo"><span>¿Quién lo paga?</span>
-        <label class="radio"><input type="radio" name="compartido" value="1" ${g.compartido ? 'checked' : ''}> Mitad y mitad <small>(se resta antes de repartir)</small></label>
-        <label class="radio"><input type="radio" name="compartido" value="0" ${g.compartido ? '' : 'checked'}> Solo el dueño <small>(no le afecta al chofer)</small></label>
-      </div>
+      ${radiosQuienPaga(g.compartido)}
       <div class="campo"><span>Foto del recibo <small>(opcional)</small></span><div class="fotos" id="recibo"></div></div>
       <button class="btn grande" type="submit">${ic('check')} Guardar gasto</button>
       ${nuevo ? '' : '<button class="btn borrar" type="button" data-a="borrarGasto">Borrar este gasto</button>'}
     </form>`);
   pintarRecibo();
 }
+const radiosQuienPaga = compartido => `
+  <div class="campo"><span>¿Quién lo paga?</span>
+    <label class="radio"><input type="radio" name="compartido" value="1" ${compartido ? 'checked' : ''}> Mitad y mitad <small>(se resta antes de repartir)</small></label>
+    <label class="radio"><input type="radio" name="compartido" value="0" ${compartido ? '' : 'checked'}> Solo el dueño <small>(no le afecta al chofer)</small></label>
+  </div>`;
+
+function formRep(r) {
+  const nuevo = !r?.id;
+  r = r || { inicio: hoy(), camionId: activos().find(c => !repActiva(c.id))?.id || activos()[0]?.id, dias: 1, costo: 0, compartido: false };
+  reciboForm = r.recibo || null;
+  abrirHoja(nuevo ? 'Anotar reparación' : 'Editar reparación', `
+    <form id="formRep" data-id="${r.id || ''}">
+      <p class="ayuda">Mientras dure la reparación, el camión sale como <b>“En reparación”</b>. Cuando pasen los días vuelve solo a <b>“Trabajando”</b>.</p>
+      <label>Camión<select name="camionId">${opcionesCamion(r.camionId)}</select></label>
+      <div class="dos">
+        <label>Se para el día<input type="date" name="inicio" value="${r.inicio}" required data-a="calcRep"></label>
+        <label>¿Cuántos días?<input name="dias" type="number" inputmode="numeric" min="1" value="${r.dias}" data-a="calcRep"></label>
+      </div>
+      <div class="cuenta una" id="vuelve"></div>
+      <label>¿Qué se reparó?<input name="detalle" value="${esc(r.detalle)}" placeholder="Ej: frenos, transmisión, llanta…"></label>
+      <label>Taller o mecánico <small>(opcional)</small><input name="taller" value="${esc(r.taller)}"></label>
+      <label>Costo <small>(si todavía no sabes, déjalo en 0)</small><input name="costo" inputmode="decimal" value="${aTexto(r.costo)}" placeholder="0"></label>
+      ${radiosQuienPaga(r.compartido)}
+      <div class="campo"><span>Foto de la factura <small>(opcional)</small></span><div class="fotos" id="recibo"></div></div>
+      <button class="btn grande" type="submit">${ic('check')} Guardar reparación</button>
+      ${nuevo ? '' : '<button class="btn borrar" type="button" data-a="borrarRep">Borrar esta reparación</button>'}
+    </form>`);
+  pintarRecibo(); calcRep();
+}
+function calcRep() {
+  const f = $('#formRep'); if (!f || !f.inicio.value) return;
+  const dias = Math.max(1, parseInt(f.dias.value) || 1);
+  $('#vuelve').innerHTML = `<div><small>Vuelve a trabajar el</small><b>${mayus(fDia(sumarDias(f.inicio.value, dias)))}</b></div>`;
+}
 
 function formCamion(c) {
   const nuevo = !c;
   if (nuevo) {
-    // nombre automático: el siguiente número libre
     let n = S.camiones.length + 1;
     while (S.camiones.some(x => x.nombre.toLowerCase() === 'camión ' + n)) n++;
     c = { nombre: 'Camión ' + n, activo: true };
   }
-  const usado = !nuevo && (S.cargas.some(x => x.camionId === c.id) || S.gastos.some(x => x.camionId === c.id));
-  abrirHoja(nuevo ? 'Nuevo camión' : 'Editar camión', `
+  const usado = !nuevo && (S.cargas.some(x => x.camionId === c.id) || S.gastos.some(x => x.camionId === c.id) || S.reparaciones.some(x => x.camionId === c.id));
+  let resumen = '';
+  if (!nuevo) {
+    const h = hoy(), mesIni = h.slice(0, 8) + '01';
+    const cm = S.cargas.filter(x => x.camionId === c.id && x.fecha >= mesIni);
+    const rs = S.reparaciones.filter(x => x.camionId === c.id);
+    const cob = suma(cm, 'cobrado'), mi = suma(cm, 'millas');
+    const cada = c.aceiteCada || ACEITE_CADA, hechas = c.aceiteFecha ? millasDesde(c.id, c.aceiteFecha) : 0;
+    resumen = `
+      <div class="estado-camion">${pillEstado(c)}</div>
+      ${avisosDe(c).map(x => `<div class="banner ${x.grave ? 'rojo' : 'gris'}">${ic('alerta')} ${esc(x.txt)}</div>`).join('')}
+      <h3 class="dia">Este mes</h3>
+      <div class="stats">
+        ${stat('caja', 'Cargas', cm.length)}
+        ${stat('dolar', 'Cobrado', dinero(cob))}
+        ${stat('ruta', 'Millas', cifra(Math.round(mi)))}
+        ${stat('cartera', 'Limpio', dinero(cob - suma(cm, 'petroleo')), 'verde')}
+        ${stat('llave', 'Días en reparación', suma(rs, r => diasEn(r, mesIni, h)))}
+        ${stat('velocimetro', 'Millas en total', cifra(Math.round(millasDesde(c.id))))}
+      </div>
+      ${c.aceiteFecha ? `<div class="barra-aceite"><div><small>Aceite: ${millas(hechas)} de ${millas(cada)}</small></div><span><i style="width:${Math.min(100, hechas / cada * 100)}%"></i></span></div>` : ''}
+      <h3 class="dia">Datos del camión</h3>`;
+  }
+  abrirHoja(nuevo ? 'Nuevo camión' : c.nombre, `
     <form id="formCamion" data-id="${c.id || ''}">
+      ${resumen}
       <label>Nombre<input name="nombre" value="${esc(c.nombre)}" required></label>
-      <label>Placa / patente <small>(opcional)</small><input name="placa" value="${esc(c.placa)}" autocapitalize="characters"></label>
+      <div class="dos">
+        <label>Placa<input name="placa" value="${esc(c.placa)}" autocapitalize="characters"></label>
+        <label>Año<input name="anio" inputmode="numeric" value="${esc(c.anio)}" placeholder="2021"></label>
+      </div>
+      <label>Marca y modelo <small>(opcional)</small><input name="modelo" value="${esc(c.modelo)}" placeholder="Ej: Freightliner M2 · 26 pies"></label>
+      <label>VIN <small>(opcional)</small><input name="vin" value="${esc(c.vin)}" autocapitalize="characters"></label>
       <label>Chofer<input name="chofer" value="${esc(c.chofer)}" placeholder="Nombre del chofer"></label>
-      <label>WhatsApp del chofer <small>(con código de país)</small><input name="telefono" type="tel" value="${esc(c.telefono)}" placeholder="Ej: +56 9 1234 5678"></label>
-      ${nuevo ? '' : `<label class="check"><input type="checkbox" name="activo" ${c.activo !== false ? 'checked' : ''}> En servicio <small>(quítalo si lo vendiste)</small></label>`}
+      <label>WhatsApp del chofer <small>(con código de país)</small><input name="telefono" type="tel" value="${esc(c.telefono)}" placeholder="Ej: +1 615 555 0101"></label>
+
+      <h3 class="dia">Papeles <small>(te avisa 30 días antes)</small></h3>
+      <div class="dos">
+        <label>Seguro vence<input type="date" name="seguro" value="${c.seguro || ''}"></label>
+        <label>Registro vence<input type="date" name="registro" value="${c.registro || ''}"></label>
+      </div>
+      <label>Inspección anual vence<input type="date" name="inspeccion" value="${c.inspeccion || ''}"></label>
+
+      <h3 class="dia">Cambio de aceite <small>(cuenta las millas de las cargas)</small></h3>
+      <div class="dos">
+        <label>Último cambio<input type="date" name="aceiteFecha" value="${c.aceiteFecha || ''}"></label>
+        <label>Cada cuántas millas<input name="aceiteCada" inputmode="numeric" value="${c.aceiteCada || ACEITE_CADA}"></label>
+      </div>
+
+      ${nuevo ? '' : `<label class="check radio"><input type="checkbox" name="activo" ${c.activo !== false ? 'checked' : ''}> En servicio <small>(quítalo si lo vendiste)</small></label>`}
       <button class="btn grande" type="submit">${ic('check')} Guardar camión</button>
-      ${nuevo ? '' : usado ? '<p class="ayuda">Este camión tiene cargas guardadas. Si ya no lo usas, quita “En servicio” para que no salga en la lista.</p>'
+      ${nuevo ? '' : `<button class="btn suave" type="button" data-a="repDeCamion" data-id="${c.id}">${ic('llave')} Anotar una reparación</button>`}
+      ${nuevo ? '' : usado ? '<p class="ayuda">Este camión tiene datos guardados. Si ya no lo usas, quita “En servicio” para que no salga en la lista.</p>'
         : '<button class="btn borrar" type="button" data-a="borrarCamion">Borrar camión</button>'}
     </form>`);
 }
@@ -454,47 +693,53 @@ function formCamion(c) {
 function pdfSemana(g, lunes) {
   const p = new PDF(), M = 40, D = 555, azul = '#0a52d6', gris = '#6e7891';
   const pie = () => p.texto(M, 820, `${S.aj.negocio} · hecho el ${fCorta(hoy())} ${deISO(hoy()).getFullYear()}`, { t: 8, c: gris });
-  const cabecera = () => {
-    if (logoPDF) p.imagen(logoPDF, M - 4, 26, 130, 52);
-    else p.texto(M, 60, 'ALE', { t: 30, b: true, c: azul });
-    p.texto(D, 42, 'LIQUIDACIÓN SEMANAL', { t: 17, b: true, c: '#0f1b33', al: 'der' });
-    p.texto(D, 62, S.aj.negocio + (S.aj.dueno ? ' · ' + S.aj.dueno : ''), { t: 10, c: gris, al: 'der' });
-    p.rect(M, 92, D - M, 3, { relleno: azul });
-    p.rect(M, 104, D - M, 30, { relleno: '#eaf1ff' });
-    p.texto(M + 12, 123, 'Día de pago', { t: 10, c: '#3a4560' });
-    p.texto(D - 12, 123, 'miércoles ' + fCorta(pagoDe(lunes)) + ' ' + deISO(pagoDe(lunes)).getFullYear(), { t: 11, b: true, c: azul, al: 'der' });
-  };
-  cabecera();
+  if (logoPDF) p.imagen(logoPDF, M - 4, 26, 130, 52);
+  else p.texto(M, 60, 'ALE', { t: 30, b: true, c: azul });
+  p.texto(D, 42, 'LIQUIDACIÓN SEMANAL', { t: 17, b: true, c: '#0f1b33', al: 'der' });
+  p.texto(D, 62, S.aj.negocio + (S.aj.dueno ? ' · ' + S.aj.dueno : ''), { t: 10, c: gris, al: 'der' });
+  p.rect(M, 92, D - M, 3, { relleno: azul });
+  p.rect(M, 104, D - M, 30, { relleno: '#eaf1ff' });
+  p.texto(M + 12, 123, 'Día de pago', { t: 10, c: '#3a4560' });
+  p.texto(D - 12, 123, 'miércoles ' + fCorta(pagoDe(lunes)) + ' ' + deISO(pagoDe(lunes)).getFullYear(), { t: 11, b: true, c: azul, al: 'der' });
+
   let y = 160;
   p.texto(M, y, 'Chofer', { t: 9, c: gris }); p.texto(230, y, 'Camión', { t: 9, c: gris }); p.texto(410, y, 'Semana', { t: 9, c: gris });
   y += 17;
   p.texto(M, y, p.recortar(g.chofer || 'Sin chofer', 180, 13, true), { t: 13, b: true });
   p.texto(230, y, p.recortar(nombreCamion(g.camionId), 170, 13, true), { t: 13, b: true });
   p.texto(410, y, `lun ${fCorta(lunes)} – dom ${fCorta(sumarDias(lunes, 6))}`, { t: 12, b: true });
-  y += 28;
+  y += 22;
+  const datos = [`${g.cargas.length} ${g.cargas.length === 1 ? 'carga' : 'cargas'}`, g.millas ? millas(g.millas) : '', g.millas ? porMilla(g.cobrado, g.millas) : '', g.horas ? fHoras(g.horas) + ' trabajadas' : '', g.diasTaller ? `${g.diasTaller} días en reparación` : ''].filter(Boolean).join('   ·   ');
+  p.texto(M, y, datos, { t: 10, c: '#3a4560' });
+  y += 18;
 
+  const col = { fecha: M + 8, viaje: 104, mi: 330, cob: 400, pet: 475, lim: D - 8 };
   const encabezado = () => {
     p.rect(M, y, D - M, 22, { relleno: '#eef1f7' });
-    p.texto(M + 8, y + 15, 'Fecha', { t: 9, b: true, c: gris });
-    p.texto(118, y + 15, 'Carga', { t: 9, b: true, c: gris });
-    p.texto(395, y + 15, 'Cobrado', { t: 9, b: true, c: gris, al: 'der' });
-    p.texto(475, y + 15, 'Petróleo', { t: 9, b: true, c: gris, al: 'der' });
-    p.texto(D - 8, y + 15, 'Limpio', { t: 9, b: true, c: gris, al: 'der' });
+    p.texto(col.fecha, y + 15, 'Fecha', { t: 9, b: true, c: gris });
+    p.texto(col.viaje, y + 15, 'Viaje', { t: 9, b: true, c: gris });
+    p.texto(col.mi, y + 15, 'Millas', { t: 9, b: true, c: gris, al: 'der' });
+    p.texto(col.cob, y + 15, 'Pago', { t: 9, b: true, c: gris, al: 'der' });
+    p.texto(col.pet, y + 15, 'Petróleo', { t: 9, b: true, c: gris, al: 'der' });
+    p.texto(col.lim, y + 15, 'Limpio', { t: 9, b: true, c: gris, al: 'der' });
     y += 22;
   };
   const saltoSi = alto => { if (y + alto > 790) { pie(); p.pagina(); y = 50; return true; } return false; };
 
   encabezado();
   g.cargas.forEach((c, i) => {
-    if (saltoSi(22)) encabezado();
-    if (i % 2) p.rect(M, y, D - M, 22, { relleno: '#f6f8fb' });
+    const alto = c.viaje ? 32 : 22;
+    if (saltoSi(alto)) encabezado();
+    if (i % 2) p.rect(M, y, D - M, alto, { relleno: '#f6f8fb' });
     const d = deISO(c.fecha);
-    p.texto(M + 8, y + 15, `${DIAS[d.getDay()].slice(0, 3)} ${fCorta(c.fecha)}`, { t: 10 });
-    p.texto(118, y + 15, p.recortar(c.detalle || 'Carga', 210), { t: 10 });
-    p.texto(395, y + 15, dinero(c.cobrado), { t: 10, al: 'der' });
-    p.texto(475, y + 15, dinero(-c.petroleo), { t: 10, c: '#b4462b', al: 'der' });
-    p.texto(D - 8, y + 15, dinero(c.cobrado - c.petroleo), { t: 10, b: true, al: 'der' });
-    y += 22;
+    p.texto(col.fecha, y + 15, `${DIAS[d.getDay()].slice(0, 3)} ${fCorta(c.fecha)}`, { t: 10 });
+    p.texto(col.viaje, y + 15, p.recortar(ruta(c), 180), { t: 10 });
+    if (c.viaje) p.texto(col.viaje, y + 27, p.recortar(c.viaje + (c.tipo ? ' · ' + c.tipo : ''), 180, 8), { t: 8, c: gris });
+    p.texto(col.mi, y + 15, c.millas ? cifra(Math.round(c.millas)) : '', { t: 10, al: 'der' });
+    p.texto(col.cob, y + 15, dinero(c.cobrado), { t: 10, al: 'der' });
+    p.texto(col.pet, y + 15, dinero(-c.petroleo), { t: 10, c: '#b4462b', al: 'der' });
+    p.texto(col.lim, y + 15, dinero(c.cobrado - c.petroleo), { t: 10, b: true, al: 'der' });
+    y += alto;
   });
   p.linea(M, y, D, y, '#c3cad6');
   y += 18;
@@ -504,14 +749,13 @@ function pdfSemana(g, lunes) {
     p.texto(M, y, 'Otros gastos que se restan antes de repartir', { t: 10, b: true }); y += 8;
     g.gastos.forEach(x => {
       saltoSi(20); y += 16;
-      p.texto(M + 8, y, fCorta(x.fecha), { t: 10 });
-      p.texto(118, y, p.recortar(x.tipo + (x.detalle ? ' · ' + x.detalle : ''), 300), { t: 10 });
-      p.texto(D - 8, y, dinero(-x.monto), { t: 10, c: '#b4462b', al: 'der' });
+      p.texto(col.fecha, y, fCorta(x.fecha), { t: 10 });
+      p.texto(col.viaje, y, p.recortar(x.tipo + (x.detalle ? ' · ' + x.detalle : ''), 320), { t: 10 });
+      p.texto(col.lim, y, dinero(-x.monto), { t: 10, c: '#b4462b', al: 'der' });
     });
     y += 22;
   }
 
-  // cuadro de totales
   saltoSi(190);
   const bx = 300, bw = D - bx;
   const fila = (txt, val, op = {}) => { p.texto(bx + 12, y, txt, { t: 11, ...op }); p.texto(D - 12, y, val, { t: 11, al: 'der', ...op }); y += 19; };
@@ -531,19 +775,16 @@ function pdfSemana(g, lunes) {
   fila(`Para el dueño (${100 - g.pct}%)`, dinero(g.paraDueno), { c: gris });
   pie();
 
-  // fotos de las cargas
   const fotos = S.aj.fotosPDF ? g.cargas.flatMap(c => (c.fotos || []).map(f => ({ f, c }))) : [];
   if (fotos.length) {
     const cw = 245, ch = 205, gap = 25;
     fotos.forEach(({ f, c }, i) => {
       const k = i % 6;
-      if (k === 0) {
-        p.pagina(); p.texto(M, 50, 'Fotos de las cargas', { t: 15, b: true, c: '#0f1b33' }); pie();
-      }
+      if (k === 0) { p.pagina(); p.texto(M, 50, 'Fotos de las cargas', { t: 15, b: true, c: '#0f1b33' }); pie(); }
       const x = M + (k % 2) * (cw + gap), yy = 72 + Math.floor(k / 2) * (ch + 32);
       p.rect(x, yy, cw, ch, { relleno: '#eef1f6' });
       p.imagen(f, x, yy, cw, ch);
-      p.texto(x, yy + ch + 14, p.recortar(`${fDia(c.fecha)}${c.detalle ? ' · ' + c.detalle : ''}`, cw, 9), { t: 9, c: gris });
+      p.texto(x, yy + ch + 14, p.recortar(`${fDia(c.fecha)} · ${ruta(c)}`, cw, 9), { t: 9, c: gris });
     });
   }
   return p.blob();
@@ -554,7 +795,8 @@ function textoMensaje(g, lunes) {
     `*${S.aj.negocio} – Liquidación semana ${fRango(lunes)}*`,
     `Chofer: ${g.chofer || '-'}`,
     `Camión: ${nombreCamion(g.camionId)}`,
-    `Cargas: ${g.cargas.length}`,
+    `Cargas: ${g.cargas.length}${g.millas ? ` · ${millas(g.millas)} · ${porMilla(g.cobrado, g.millas)}` : ''}`,
+    ...(g.horas ? [`Horas: ${fHoras(g.horas)}`] : []),
     `Cobrado: ${dinero(g.cobrado)}`,
     `Petróleo: ${dinero(-g.petroleo)}`,
     ...(g.otros ? [`Otros gastos: ${dinero(-g.otros)}`] : []),
@@ -566,28 +808,30 @@ function textoMensaje(g, lunes) {
 
 // ---------- respaldo y Excel ----------
 function respaldo() {
-  const datos = { app: 'camiones', version: 1, fecha: new Date().toISOString(), ajustes: S.aj, camiones: S.camiones, cargas: S.cargas, gastos: S.gastos, pagos: S.pagos };
-  compartir(new Blob([JSON.stringify(datos)], { type: 'application/json' }), `respaldo-camiones-${hoy()}.json`);
+  const datos = { app: 'camiones', version: 2, fecha: new Date().toISOString(), ajustes: S.aj };
+  for (const t of db.TABLAS) datos[t] = S[t];
+  compartir(new Blob([JSON.stringify(datos)], { type: 'application/json' }), `respaldo-ALE-${hoy()}.json`);
 }
 async function recuperar(archivo) {
   try {
     const datos = JSON.parse(await archivo.text());
     if (datos.app !== 'camiones') throw new Error();
-    const n = (datos.cargas || []).length;
-    if (!confirm(`Esta copia tiene ${n} cargas y ${(datos.camiones || []).length} camiones.\n\nSe va a reemplazar todo lo que hay ahora en el teléfono. ¿Seguir?`)) return;
+    if (!confirm(`Esta copia tiene ${(datos.cargas || []).length} cargas y ${(datos.camiones || []).length} camiones.\n\nSe va a reemplazar todo lo que hay ahora en este aparato. ¿Seguir?`)) return;
     await db.restaurar(datos);
     await cargarTodo(); ir('cargas'); avisar('Copia recuperada');
   } catch { alert('Ese archivo no es una copia de esta app.'); }
 }
 function excel() {
   const us = S.aj.formato === 'us', sep = us ? ',' : ';';
-  const n = v => us ? String(Math.round(v * 100) / 100) : String(Math.round(v * 100) / 100).replace('.', ',');
+  const n = v => v === '' || v == null ? '' : us ? String(Math.round(v * 100) / 100) : String(Math.round(v * 100) / 100).replace('.', ',');
   const c = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
-  const filas = [['Fecha', 'Semana', 'Tipo', 'Camión', 'Chofer', 'Detalle', 'Cobrado', 'Petróleo', 'Otro gasto', 'Quién paga', 'Limpio']];
-  S.cargas.forEach(x => filas.push([x.fecha, fRango(lunesDe(x.fecha)), 'Carga', nombreCamion(x.camionId), x.chofer, x.detalle, n(x.cobrado), n(x.petroleo), '', 'Mitad y mitad', n(x.cobrado - x.petroleo)]));
-  S.gastos.forEach(x => filas.push([x.fecha, fRango(lunesDe(x.fecha)), x.tipo, nombreCamion(x.camionId), x.chofer, x.detalle, '', '', n(x.monto), x.compartido ? 'Mitad y mitad' : 'Solo dueño', n(x.compartido ? -x.monto : 0)]));
-  const cuerpo = [filas[0], ...filas.slice(1).sort((a, b) => a[0].localeCompare(b[0]))].map(f => f.map(c).join(sep)).join('\r\n');
-  compartir(new Blob(['﻿' + cuerpo], { type: 'text/csv' }), `camiones-${hoy()}.csv`);
+  const cab = ['Fecha', 'Semana', 'Tipo', 'Camión', 'Chofer', 'ID viaje', 'Sale de', 'Llega a', 'Millas', 'Horas', 'Pago', 'Por milla', 'Petróleo', 'Otro gasto', 'Quién paga', 'Limpio'];
+  const filas = [];
+  S.cargas.forEach(x => filas.push([x.fecha, fRango(lunesDe(x.fecha)), 'Carga ' + (x.tipo || ''), nombreCamion(x.camionId), x.chofer, x.viaje, x.origen || x.detalle, x.destino, n(x.millas || ''), fHoras(x.horas), n(x.cobrado), x.millas ? n(x.cobrado / x.millas) : '', n(x.petroleo), '', 'Mitad y mitad', n(x.cobrado - x.petroleo)]));
+  S.gastos.forEach(x => filas.push([x.fecha, fRango(lunesDe(x.fecha)), x.tipo, nombreCamion(x.camionId), x.chofer, '', x.detalle, '', '', '', '', '', '', n(x.monto), x.compartido ? 'Mitad y mitad' : 'Solo dueño', n(x.compartido ? -x.monto : 0)]));
+  S.reparaciones.forEach(x => filas.push([x.inicio, fRango(lunesDe(x.inicio)), `Reparación (${x.dias} días)`, nombreCamion(x.camionId), x.chofer, '', x.detalle, x.taller, '', '', '', '', '', n(x.costo), x.compartido ? 'Mitad y mitad' : 'Solo dueño', n(x.compartido ? -x.costo : 0)]));
+  const cuerpo = [cab, ...filas.sort((a, b) => a[0].localeCompare(b[0]))].map(f => f.map(c).join(sep)).join('\r\n');
+  compartir(new Blob(['﻿' + cuerpo], { type: 'text/csv' }), `ALE-${hoy()}.csv`);
 }
 
 // ---------- eventos ----------
@@ -601,31 +845,31 @@ document.addEventListener('click', async e => {
     case 'semana': semana = sumarDias(semana, +el.dataset.d); pintar(); break;
     case 'semanaHoy': semana = lunesDe(hoy()); pintar(); break;
     case 'semanaPago': semanaPago = sumarDias(semanaPago, +el.dataset.d); pintar(); break;
+    case 'semanaTaller': semanaTaller = sumarDias(semanaTaller, +el.dataset.d); pintar(); break;
+    case 'irCamiones': ir('camiones'); break;
     case 'nuevaCarga': formCarga(); break;
     case 'nuevoGasto': formGasto(); break;
     case 'nuevoCamion': formCamion(); break;
+    case 'nuevaRep': formRep(); break;
+    case 'repDeCamion': formRep({ inicio: hoy(), camionId: id, dias: 1, costo: 0, compartido: false }); break;
     case 'editarCarga': formCarga(S.cargas.find(x => x.id === id)); break;
     case 'editarGasto': formGasto(S.gastos.find(x => x.id === id)); break;
     case 'editarCamion': formCamion(camion(id)); break;
+    case 'editarRep': formRep(S.reparaciones.find(x => x.id === id)); break;
+    case 'repLista': {
+      const r = S.reparaciones.find(x => x.id === id); if (!r) break;
+      await guardar('reparaciones', { ...r, dias: Math.max(1, entreDias(r.inicio, hoy())), listo: hoy() });
+      pintar(); avisar('Camión trabajando otra vez');
+      break;
+    }
     case 'verFoto': verFoto(fotosForm[+el.dataset.i].d); break;
     case 'verRecibo': verFoto(reciboForm.d); break;
     case 'quitarFoto': fotosForm.splice(+el.dataset.i, 1); pintarFotos(); break;
     case 'quitarRecibo': reciboForm = null; pintarRecibo(); break;
-    case 'borrarCarga': {
-      const f = $('#formCarga');
-      if (confirm('¿Borrar esta carga?')) { await borrar('cargas', f.dataset.id); cerrarHoja(); pintar(); avisar('Carga borrada'); }
-      break;
-    }
-    case 'borrarGasto': {
-      const f = $('#formGasto');
-      if (confirm('¿Borrar este gasto?')) { await borrar('gastos', f.dataset.id); cerrarHoja(); pintar(); avisar('Gasto borrado'); }
-      break;
-    }
-    case 'borrarCamion': {
-      const f = $('#formCamion');
-      if (confirm('¿Borrar este camión?')) { await borrar('camiones', f.dataset.id); cerrarHoja(); pintar(); }
-      break;
-    }
+    case 'borrarCarga': if (confirm('¿Borrar esta carga?')) { await borrar('cargas', $('#formCarga').dataset.id); cerrarHoja(); pintar(); avisar('Carga borrada'); } break;
+    case 'borrarGasto': if (confirm('¿Borrar este gasto?')) { await borrar('gastos', $('#formGasto').dataset.id); cerrarHoja(); pintar(); avisar('Gasto borrado'); } break;
+    case 'borrarRep': if (confirm('¿Borrar esta reparación?')) { await borrar('reparaciones', $('#formRep').dataset.id); cerrarHoja(); pintar(); avisar('Reparación borrada'); } break;
+    case 'borrarCamion': if (confirm('¿Borrar este camión?')) { await borrar('camiones', $('#formCamion').dataset.id); cerrarHoja(); pintar(); } break;
     case 'fotosPDF': S.aj.fotosPDF = el.checked; db.guardarAjustes(S.aj); break;
     case 'pdf': {
       const g = grupoDe(el.dataset.k); if (!g) break;
@@ -660,15 +904,14 @@ document.addEventListener('click', async e => {
 
 document.addEventListener('input', e => {
   const a = e.target.dataset.a;
-  if (a === 'calc') {
-    const f = $('#formCarga');
-    $('#limpio').textContent = dinero(numero(f.cobrado.value) - numero(f.petroleo.value));
-  }
+  if (a === 'calc') calcCarga();
+  if (a === 'calcRep') calcRep();
 });
 
 document.addEventListener('change', async e => {
   const t = e.target, a = t.dataset.a;
-  if (a === 'cambiaCamion') { const f = $('#formCarga'); f.chofer.value = camion(t.value)?.chofer || ''; }
+  if (a === 'cambiaCamion') { $('#formCarga').chofer.value = camion(t.value)?.chofer || ''; }
+  if (a === 'calcRep') calcRep();
   if (a === 'subirFotos' || a === 'subirRecibo') {
     const archivos = [...t.files]; if (!archivos.length) return;
     avisar('Preparando foto…');
@@ -687,10 +930,11 @@ document.addEventListener('submit', async e => {
   const id = f.dataset.id || nuevoId(), anterior = k => S[k].find(x => x.id === id);
   if (f.id === 'formCarga') {
     if (!d.camionId) return alert('Primero agrega un camión.');
-    if (!numero(d.cobrado)) return alert('Escribe cuánto se cobró por la carga.');
+    if (!numero(d.cobrado)) return alert('Escribe cuánto pagaron por la carga.');
     await guardar('cargas', {
-      id, creado: anterior('cargas')?.creado || Date.now(), fecha: d.fecha, camionId: d.camionId, chofer: d.chofer.trim(),
-      detalle: d.detalle.trim(), cobrado: numero(d.cobrado), petroleo: numero(d.petroleo), fotos: fotosForm, recibo: reciboForm,
+      id, creado: anterior('cargas')?.creado || Date.now(), fecha: d.fecha, tipo: d.tipo, camionId: d.camionId, chofer: d.chofer.trim(),
+      viaje: d.viaje.trim().toUpperCase(), origen: d.origen.trim(), destino: d.destino.trim(), detalle: '',
+      millas: numero(d.millas), horas: horas(d.horas), cobrado: numero(d.cobrado), petroleo: numero(d.petroleo), fotos: fotosForm, recibo: reciboForm,
     });
     semana = lunesDe(d.fecha); avisar('Carga guardada');
   }
@@ -705,11 +949,23 @@ document.addEventListener('submit', async e => {
     });
     semana = lunesDe(d.fecha); avisar('Gasto guardado');
   }
+  if (f.id === 'formRep') {
+    if (!d.camionId) return alert('Primero agrega un camión.');
+    const viejo = anterior('reparaciones');
+    await guardar('reparaciones', {
+      ...(viejo || {}), id, creado: viejo?.creado || Date.now(), camionId: d.camionId, inicio: d.inicio, dias: Math.max(1, parseInt(d.dias) || 1),
+      chofer: viejo && viejo.camionId === d.camionId ? viejo.chofer : camion(d.camionId)?.chofer || '',
+      detalle: d.detalle.trim(), taller: d.taller.trim(), costo: numero(d.costo), compartido: d.compartido === '1', recibo: reciboForm,
+    });
+    avisar('Reparación guardada');
+  }
   if (f.id === 'formCamion') {
     const viejo = anterior('camiones');
     await guardar('camiones', {
-      id, creado: viejo?.creado || Date.now(), nombre: d.nombre.trim(), placa: d.placa.trim().toUpperCase(),
-      chofer: d.chofer.trim(), telefono: d.telefono.trim(), activo: viejo ? d.activo === 'on' : true,
+      ...(viejo || {}), id, creado: viejo?.creado || Date.now(), nombre: d.nombre.trim(), placa: d.placa.trim().toUpperCase(),
+      anio: d.anio.trim(), modelo: d.modelo.trim(), vin: d.vin.trim().toUpperCase(),
+      chofer: d.chofer.trim(), telefono: d.telefono.trim(), seguro: d.seguro, registro: d.registro, inspeccion: d.inspeccion,
+      aceiteFecha: d.aceiteFecha, aceiteCada: numero(d.aceiteCada) || ACEITE_CADA, activo: viejo ? d.activo === 'on' : true,
     });
     avisar('Camión guardado');
   }
@@ -723,20 +979,22 @@ $('#visor').addEventListener('click', () => { $('#visor').hidden = true; });
 
 // ---------- arranque ----------
 async function cargarTodo() {
-  const [camiones, cargas, gastos, pagos, aj] = await Promise.all([...db.TABLAS.map(db.todos), db.leerAjustes()]);
-  Object.assign(S, { camiones, cargas, gastos, pagos, aj: { ...AJ_BASE, ...(aj || {}) } });
+  const datos = await Promise.all(db.TABLAS.map(db.todos)), aj = await db.leerAjustes();
+  db.TABLAS.forEach((t, i) => { S[t] = datos[i]; });
+  S.aj = { ...AJ_BASE, ...(aj || {}) };
   if (S.aj.negocio === 'Mis Camiones') S.aj.negocio = 'ALE';
 }
 // el logo se pasa a JPEG con fondo blanco para meterlo en el PDF
 let logoPDF = null;
-const img = new Image();
-img.onload = () => {
-  const k = 3, cv = document.createElement('canvas'); cv.width = img.naturalWidth * k; cv.height = img.naturalHeight * k;
+const logo = new Image();
+logo.onload = () => {
+  const k = 3, cv = document.createElement('canvas'); cv.width = logo.naturalWidth * k; cv.height = logo.naturalHeight * k;
   const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height);
-  g.imageSmoothingQuality = 'high'; g.drawImage(img, 0, 0, cv.width, cv.height);
+  g.imageSmoothingQuality = 'high'; g.drawImage(logo, 0, 0, cv.width, cv.height);
   logoPDF = { d: cv.toDataURL('image/jpeg', .92), w: cv.width, h: cv.height };
 };
-img.src = 'logo-ale.png';
+logo.src = 'logo-ale.png';
+
 await cargarTodo();
 // si la semana pasada no tiene nada, Pagos abre en la semana actual
 if (!liquidacion(semanaPago).length && liquidacion(lunesDe(hoy())).length) semanaPago = lunesDe(hoy());

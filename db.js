@@ -1,6 +1,6 @@
 // Guardado en el mismo teléfono (IndexedDB). Nada sale del aparato.
-const NOMBRE = 'camiones', VERSION = 1;
-export const TABLAS = ['camiones', 'cargas', 'gastos', 'pagos'];
+const NOMBRE = 'camiones', VERSION = 2;
+export const TABLAS = ['camiones', 'cargas', 'gastos', 'pagos', 'reparaciones'];
 
 let base;
 function abrir() {
