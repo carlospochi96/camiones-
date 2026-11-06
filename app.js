@@ -208,7 +208,7 @@ function vistaPagos() {
   const totalDueno = lista.reduce((t, g) => t + g.paraDueno - g.gastoDueno, 0);
   const estado = h === pago ? '<div class="banner hoy">💵 Hoy es miércoles: toca pagar esta semana</div>'
     : h < pago && h > sumarDias(semanaPago, 6) ? `<div class="banner">Se paga el miércoles ${fCorta(pago)}</div>`
-      : h <= sumarDias(semanaPago, 6) ? '<div class="banner gris">Esta semana todavía no termina</div>' : '';
+      : h <= sumarDias(semanaPago, 6) ? '<div class="banner gris">Semana en curso: el cálculo se va sumando con cada carga</div>' : '';
   return `
     ${selectorSemana(semanaPago, 'semanaPago')}
     ${estado}
@@ -678,6 +678,8 @@ async function cargarTodo() {
   Object.assign(S, { camiones, cargas, gastos, pagos, aj: { ...AJ_BASE, ...(aj || {}) } });
 }
 await cargarTodo();
+// si la semana pasada no tiene nada, Pagos abre en la semana actual
+if (!liquidacion(semanaPago).length && liquidacion(lunesDe(hoy())).length) semanaPago = lunesDe(hoy());
 ir('cargas');
 navigator.storage?.persist?.();
 if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js');
