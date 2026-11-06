@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Camiones</title>
+  <meta name="theme-color" content="#12233f">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Camiones">
+  <link rel="apple-touch-icon" href="icono-180.png">
+  <link rel="icon" href="icono-192.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <header id="top">
+    <small id="negocio"></small>
+    <h1 id="titulo">Cargas</h1>
+  </header>
+
+  <main id="vista"></main>
+
+  <nav id="tabs">
+    <button data-v="cargas"><span>📦</span>Cargas</button>
+    <button data-v="pagos"><span>💵</span>Pagos</button>
+    <button data-v="camiones"><span>🚚</span>Camiones</button>
+    <button data-v="mas"><span>⚙️</span>Ajustes</button>
+  </nav>
+
+  <div id="hoja" hidden>
+    <div class="panel">
+      <div class="barra"><h2 id="hojaTitulo"></h2><button id="cerrarHoja" aria-label="Cerrar">×</button></div>
+      <div id="hojaCuerpo"></div>
+    </div>
+  </div>
+
+  <div id="visor" hidden><img alt=""></div>
+  <div id="aviso" role="status"></div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
