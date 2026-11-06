@@ -7,9 +7,11 @@ const ESPECIALES = { '–': 0x96, '—': 0x97, '•': 0x95, '€': 0x80, '“': 
 
 function aWin(s) {
   let r = '';
-  for (const ch of String(s)) {
+  for (const ch of String(s).replace(/[→⇒➜]/g, '->').replace(/[←]/g, '<-')) {
     const c = ch.charCodeAt(0);
-    if (c < 256) r += ch; else if (ESPECIALES[ch]) r += String.fromCharCode(ESPECIALES[ch]); else r += '?';
+    if (c < 256) r += ch;
+    else if (ESPECIALES[ch]) r += String.fromCharCode(ESPECIALES[ch]);
+    else { const base = ch.normalize('NFD')[0]; r += base.charCodeAt(0) < 256 ? base : '?'; }
   }
   return r;
 }
@@ -42,7 +44,7 @@ export class PDF {
   Y(y) { return (this.H - y).toFixed(2); }
 
   ancho(s, tam = 10, negrita = false) {
-    let w = 0; for (const ch of String(s)) w += anchoLetra(ch, negrita);
+    let w = 0; for (const ch of String(s).replace(/[→⇒➜]/g, '->').replace(/[←]/g, '<-')) w += anchoLetra(ch, negrita);
     return w * tam / 1000;
   }
   // Corta un texto con "…" si no cabe

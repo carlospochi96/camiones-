@@ -2,9 +2,34 @@ import * as db from './db.js';
 import { PDF } from './pdf.js';
 
 // ---------- estado (todo en memoria; se guarda en el teléfono al cambiar) ----------
-const AJ_BASE = { negocio: 'Mis Camiones', dueno: '', pctChofer: 50, decimales: 'auto', moneda: '$', fotosPDF: true };
+const AJ_BASE = { negocio: 'ALE', dueno: '', pctChofer: 50, decimales: 'auto', formato: 'us', moneda: '$', fotosPDF: true };
 const S = { camiones: [], cargas: [], gastos: [], pagos: [], aj: { ...AJ_BASE } };
 const TIPOS_GASTO = ['Petróleo', 'Peaje / casetas', 'Reparación', 'Llantas', 'Aceite', 'Lavado', 'Comida', 'Multa', 'Otro'];
+
+// ---------- iconos de línea ----------
+const I = {
+  caja: '<path d="M21 8l-9-5-9 5v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/>',
+  camion: '<path d="M2.5 6.5h11v9h-11z"/><path d="M13.5 9.5h4l3 3.2v2.8h-7"/><circle cx="6.5" cy="17" r="1.8"/><circle cx="17" cy="17" r="1.8"/>',
+  petroleo: '<path d="M4 20V5a1.5 1.5 0 011.5-1.5h7A1.5 1.5 0 0114 5v15M3 20h12M4 10h10"/><path d="M14 8h2.5L19 10.5V17a1.5 1.5 0 01-3 0v-3h-2"/>',
+  cartera: '<path d="M3.5 7.5a2 2 0 012-2h12v2"/><rect x="3.5" y="7.5" width="17" height="11.5" rx="2"/><path d="M16 13.3h.01"/>',
+  dolar: '<path d="M12 3v18M16.5 7.5c0-1.7-2-3-4.5-3s-4.5 1.2-4.5 3.2c0 4.6 9 2.4 9 7 0 2-2 3.3-4.5 3.3s-4.5-1.3-4.5-3"/>',
+  check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  mas: '<path d="M12 5v14M5 12h14"/>',
+  izq: '<path d="M15 5l-7 7 7 7"/>',
+  der: '<path d="M9 5l7 7-7 7"/>',
+  camara: '<path d="M4 8.5A1.5 1.5 0 015.5 7h2l1.5-2h6l1.5 2h2A1.5 1.5 0 0120 8.5v9a1.5 1.5 0 01-1.5 1.5h-13A1.5 1.5 0 014 17.5z"/><circle cx="12" cy="13" r="3.3"/>',
+  recibo: '<path d="M6 3.5h12v17l-2-1.3-2 1.3-2-1.3-2 1.3-2-1.3-2 1.3z"/><path d="M9 8h6M9 11.5h6M9 15h4"/>',
+  doc: '<path d="M7 3.5h7l4 4v13H7z"/><path d="M14 3.5v4h4M9.5 13h5M9.5 16.5h5"/>',
+  chat: '<path d="M20 11.5a8 8 0 01-11.8 7L4 19.5l1.1-3.9A8 8 0 1120 11.5z"/>',
+  persona: '<circle cx="12" cy="8" r="3.8"/><path d="M4.5 20c.8-3.8 3.8-5.8 7.5-5.8s6.7 2 7.5 5.8"/>',
+  bajar: '<path d="M12 4v11M7 10.5l5 5 5-5M5 20h14"/>',
+  subir: '<path d="M12 16V5M7 9.5l5-5 5 5M5 20h14"/>',
+  tabla: '<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M3.5 14.5h17M9.5 4.5v15"/>',
+  reloj: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+  telefono: '<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/>',
+};
+const ic = (n, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24">${I[n]}</svg>`;
+const iniciales = s => (s || '?').trim().split(/\s+/).slice(0, 2).map(p => p[0]).join('').toUpperCase();
 
 // ---------- fechas ----------
 const pad = n => String(n).padStart(2, '0');
@@ -24,9 +49,10 @@ const fRango = l => `${fCorta(l)} – ${fCorta(sumarDias(l, 6))}`;
 function dinero(n) {
   const neg = n < -0.004; n = Math.abs(Math.round(n * 100) / 100);
   const d = S.aj.decimales === 'no' ? 0 : S.aj.decimales === 'si' ? 2 : (Number.isInteger(n) ? 0 : 2);
+  const us = S.aj.formato === 'us';
   let [e, f] = n.toFixed(d).split('.');
-  e = e.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-  return (neg ? '-' : '') + S.aj.moneda + e + (f ? ',' + f : '');
+  e = e.replace(/\B(?=(\d{3})+(?!\d))/g, us ? ',' : '.');
+  return (neg ? '-' : '') + S.aj.moneda + e + (f ? (us ? '.' : ',') + f : '');
 }
 // Entiende "1.500", "1500,50", "1,500.50", "$ 2.300"
 function numero(txt) {
@@ -42,7 +68,7 @@ function numero(txt) {
   }
   const n = parseFloat(s); return isNaN(n) ? 0 : n;
 }
-const aTexto = n => n ? String(n).replace('.', ',') : '';
+const aTexto = n => n ? (S.aj.formato === 'us' ? String(n) : String(n).replace('.', ',')) : '';
 
 // ---------- utilidades ----------
 const $ = s => document.querySelector(s);
@@ -144,25 +170,26 @@ function ir(v) {
 function pintar() {
   const t = { cargas: 'Cargas', pagos: 'Pagos', camiones: 'Camiones', mas: 'Ajustes' }[vista];
   $('#titulo').textContent = t;
-  $('#negocio').textContent = S.aj.negocio;
+  const fh = fDia(hoy());
+  $('#negocio').textContent = (S.aj.negocio && S.aj.negocio !== 'ALE' ? S.aj.negocio + ' · ' : '') + fh[0].toUpperCase() + fh.slice(1);
   $('#vista').innerHTML = ({ cargas: vistaCargas, pagos: vistaPagos, camiones: vistaCamiones, mas: vistaMas })[vista]();
 }
 
 const selectorSemana = (l, a) => `
   <div class="semana">
-    <button class="flecha" data-a="${a}" data-d="-7" aria-label="Semana anterior">‹</button>
-    <div><b>${fRango(l)}</b><small>lunes a domingo · se paga el miércoles ${fCorta(pagoDe(l))}</small></div>
-    <button class="flecha" data-a="${a}" data-d="7" aria-label="Semana siguiente">›</button>
+    <button class="flecha" data-a="${a}" data-d="-7" aria-label="Semana anterior">${ic('izq')}</button>
+    <div><b>${fRango(l)}</b><small>Se paga el miércoles ${fCorta(pagoDe(l))}</small></div>
+    <button class="flecha" data-a="${a}" data-d="7" aria-label="Semana siguiente">${ic('der')}</button>
   </div>`;
 
 // ---------- vista: cargas ----------
 function vistaCargas() {
   if (!S.camiones.length) return `
     <div class="vacio">
-      <div class="emoji">🚚</div>
+      <img src="logo-ale.png" alt="ALE">
       <h2>Bienvenido</h2>
       <p>Primero agrega tus camiones con el nombre de cada chofer. Después ya puedes anotar las cargas.</p>
-      <button class="btn grande" data-a="nuevoCamion">+ Agregar mi primer camión</button>
+      <button class="btn grande" data-a="nuevoCamion">${ic('mas')} Agregar mi primer camión</button>
     </div>`;
   const fin = sumarDias(semana, 6), dentro = x => x.fecha >= semana && x.fecha <= fin;
   const cargas = S.cargas.filter(dentro), gastos = S.gastos.filter(dentro);
@@ -173,32 +200,38 @@ function vistaCargas() {
   return `
     ${selectorSemana(semana, 'semana')}
     ${actual ? '' : '<button class="link centro" data-a="semanaHoy">Volver a esta semana</button>'}
-    <div class="resumen">
-      <div><small>Cobrado</small><b>${dinero(cobrado)}</b></div>
-      <div><small>Petróleo</small><b class="rojo">${dinero(-petroleo)}</b></div>
-      <div><small>Limpio</small><b class="verde">${dinero(cobrado - petroleo - otros)}</b></div>
+    <div class="stats">
+      <div class="stat"><span class="ico">${ic('caja')}</span><div><small>Cargas</small><b>${cargas.length}</b></div></div>
+      <div class="stat"><span class="ico">${ic('dolar')}</span><div><small>Cobrado</small><b>${dinero(cobrado)}</b></div></div>
+      <div class="stat"><span class="ico rojo">${ic('petroleo')}</span><div><small>Petróleo</small><b class="rojo">${dinero(-petroleo)}</b></div></div>
+      <div class="stat"><span class="ico verde">${ic('cartera')}</span><div><small>Limpio</small><b class="verde">${dinero(cobrado - petroleo - otros)}</b></div></div>
     </div>
     <div class="botones">
-      <button class="btn grande" data-a="nuevaCarga">+ Nueva carga</button>
-      <button class="btn grande sec" data-a="nuevoGasto">+ Otro gasto</button>
+      <button class="btn grande" data-a="nuevaCarga">${ic('mas')} Nueva carga</button>
+      <button class="btn grande sec" data-a="nuevoGasto">${ic('recibo')} Gasto</button>
     </div>
     ${dias.length ? dias.map(d => `
       <h3 class="dia">${fDia(d)}</h3>
-      ${cargas.filter(c => c.fecha === d).sort((a, b) => b.creado - a.creado).map(filaCarga).join('')}
-      ${gastos.filter(g => g.fecha === d).sort((a, b) => b.creado - a.creado).map(filaGasto).join('')}
+      <div class="grupo">
+        ${cargas.filter(c => c.fecha === d).sort((a, b) => b.creado - a.creado).map(filaCarga).join('')}
+        ${gastos.filter(g => g.fecha === d).sort((a, b) => b.creado - a.creado).map(filaGasto).join('')}
+      </div>
     `).join('') : `<p class="nada">No hay cargas anotadas en esta semana.</p>`}`;
 }
-const filaCarga = c => `
+const filaCarga = c => {
+  const cam = camion(c.camionId);
+  return `
   <button class="fila" data-a="editarCarga" data-id="${c.id}">
-    ${c.fotos?.[0] ? `<img class="mini" src="${c.fotos[0].d}" alt="">` : '<span class="mini icono">📦</span>'}
-    <span class="txt"><b>${esc(nombreCamion(c.camionId))}</b><small>${esc(c.chofer || 'Sin chofer')}${c.detalle ? ' · ' + esc(c.detalle) : ''}</small></span>
-    <span class="num"><b>${dinero(c.cobrado)}</b><small class="rojo">petróleo ${dinero(-c.petroleo)}</small><small class="verde">limpio ${dinero(c.cobrado - c.petroleo)}</small></span>
+    ${c.fotos?.[0] ? `<img class="mini" src="${c.fotos[0].d}" alt="">` : `<span class="mini icono">${ic('caja')}</span>`}
+    <span class="txt"><b>${esc(c.detalle || 'Carga')}</b><small>${esc(c.chofer || 'Sin chofer')} · ${esc(cam ? cam.nombre : 'Camión borrado')}</small></span>
+    <span class="num"><b>${dinero(c.cobrado)}</b><small class="rojo">${dinero(-c.petroleo)}</small><small class="verde">${dinero(c.cobrado - c.petroleo)}</small></span>
   </button>`;
+};
 const filaGasto = g => `
-  <button class="fila gasto" data-a="editarGasto" data-id="${g.id}">
-    <span class="mini icono">🧾</span>
-    <span class="txt"><b>${esc(g.tipo)}</b><small>${esc(nombreCamion(g.camionId))}${g.detalle ? ' · ' + esc(g.detalle) : ''}</small></span>
-    <span class="num"><b class="rojo">${dinero(-g.monto)}</b><small>${g.compartido ? 'mitad y mitad' : 'lo paga el dueño'}</small></span>
+  <button class="fila" data-a="editarGasto" data-id="${g.id}">
+    <span class="mini icono gasto">${ic('recibo')}</span>
+    <span class="txt"><b>${esc(g.tipo)}</b><small>${esc(camion(g.camionId)?.nombre || '')}${g.detalle ? ' · ' + esc(g.detalle) : ''}</small></span>
+    <span class="num"><b class="rojo">${dinero(-g.monto)}</b><small>${g.compartido ? 'Mitad y mitad' : 'Solo dueño'}</small></span>
   </button>`;
 
 // ---------- vista: pagos ----------
@@ -206,28 +239,29 @@ function vistaPagos() {
   const lista = liquidacion(semanaPago), pago = pagoDe(semanaPago), h = hoy();
   const totalChofer = lista.reduce((t, g) => t + g.paraChofer, 0);
   const totalDueno = lista.reduce((t, g) => t + g.paraDueno - g.gastoDueno, 0);
-  const estado = h === pago ? '<div class="banner hoy">💵 Hoy es miércoles: toca pagar esta semana</div>'
-    : h < pago && h > sumarDias(semanaPago, 6) ? `<div class="banner">Se paga el miércoles ${fCorta(pago)}</div>`
-      : h <= sumarDias(semanaPago, 6) ? '<div class="banner gris">Semana en curso: el cálculo se va sumando con cada carga</div>' : '';
+  const estado = h === pago ? `<div class="banner hoy">${ic('dolar')} Hoy es miércoles: toca pagar esta semana</div>`
+    : h < pago && h > sumarDias(semanaPago, 6) ? `<div class="banner">${ic('reloj')} Se paga el miércoles ${fCorta(pago)}</div>`
+      : h <= sumarDias(semanaPago, 6) ? `<div class="banner gris">${ic('reloj')} Semana en curso: se va sumando con cada carga</div>` : '';
   return `
     ${selectorSemana(semanaPago, 'semanaPago')}
     ${estado}
     ${lista.length ? `
-      <div class="resumen dos">
-        <div><small>Para los choferes</small><b class="verde">${dinero(totalChofer)}</b></div>
-        <div><small>Para el dueño</small><b>${dinero(totalDueno)}</b></div>
+      <div class="stats">
+        <div class="stat"><span class="ico">${ic('persona')}</span><div><small>Para choferes</small><b>${dinero(totalChofer)}</b></div></div>
+        <div class="stat"><span class="ico verde">${ic('cartera')}</span><div><small>Para el dueño</small><b class="verde">${dinero(totalDueno)}</b></div></div>
       </div>
-      <label class="check"><input type="checkbox" data-a="fotosPDF" ${S.aj.fotosPDF ? 'checked' : ''}> Poner las fotos de las cargas en el PDF</label>
-      ${lista.map(tarjetaPago).join('')}`
+      ${lista.map(tarjetaPago).join('')}
+      <label class="check radio"><input type="checkbox" data-a="fotosPDF" ${S.aj.fotosPDF ? 'checked' : ''}> Poner las fotos de las cargas en el PDF</label>`
     : '<p class="nada">No hay cargas en esta semana.</p>'}`;
 }
 function tarjetaPago(g) {
   const pagado = !!g.pago;
   return `
-  <div class="tarjeta ${pagado ? 'pagada' : ''}">
+  <div class="tarjeta">
     <div class="cab">
-      <div><b>${esc(g.chofer || 'Sin chofer')}</b><small>${esc(nombreCamion(g.camionId))} · ${g.cargas.length} ${g.cargas.length === 1 ? 'carga' : 'cargas'}</small></div>
-      ${pagado ? `<span class="sello">✓ Pagado ${fCorta(g.pago.fecha)}</span>` : ''}
+      <span class="avatar">${esc(iniciales(g.chofer))}</span>
+      <div class="quien"><b>${esc(g.chofer || 'Sin chofer')}</b><small>${esc(nombreCamion(g.camionId))} · ${g.cargas.length} ${g.cargas.length === 1 ? 'carga' : 'cargas'}</small></div>
+      ${pagado ? `<span class="pill ok">${ic('check')} Pagado</span>` : '<span class="pill pend">Pendiente</span>'}
     </div>
     <div class="linea"><span>Cobrado</span><span>${dinero(g.cobrado)}</span></div>
     <div class="linea"><span>Petróleo</span><span class="rojo">${dinero(-g.petroleo)}</span></div>
@@ -240,9 +274,9 @@ function tarjetaPago(g) {
     ${g.gastoDueno ? `<div class="linea nota"><span>Gastos que paga solo el dueño</span><span class="rojo">${dinero(-g.gastoDueno)}</span></div>
       <div class="linea nota"><span>Al dueño le queda</span><span>${dinero(g.paraDueno - g.gastoDueno)}</span></div>` : ''}
     <div class="acciones">
-      <button class="btn wa" data-a="pdf" data-k="${esc(g.k)}">📄 Enviar PDF</button>
-      <button class="btn sec" data-a="mensaje" data-k="${esc(g.k)}">💬 Mensaje</button>
-      <button class="btn ${pagado ? 'sec' : 'ok'}" data-a="pagado" data-k="${esc(g.k)}">${pagado ? 'Quitar pagado' : '✓ Marcar pagado'}</button>
+      <button class="btn" data-a="pdf" data-k="${esc(g.k)}">${ic('doc')} Enviar PDF</button>
+      <button class="btn suave" data-a="mensaje" data-k="${esc(g.k)}">${ic('chat')} Mensaje</button>
+      <button class="btn ${pagado ? 'suave' : 'ok'}" data-a="pagado" data-k="${esc(g.k)}">${pagado ? `Pagado el ${fCorta(g.pago.fecha)} · quitar` : `${ic('check')} Marcar pagado`}</button>
     </div>
   </div>`;
 }
@@ -252,14 +286,19 @@ function vistaCamiones() {
   const lista = ordenCamiones(), activos = lista.filter(c => c.activo !== false), fuera = lista.filter(c => c.activo === false);
   const fila = c => `
     <button class="fila" data-a="editarCamion" data-id="${c.id}">
-      <span class="mini icono">🚚</span>
-      <span class="txt"><b>${esc(c.nombre)}${c.placa ? ' · ' + esc(c.placa) : ''}</b><small>${esc(c.chofer || 'Sin chofer')}${c.telefono ? ' · ' + esc(c.telefono) : ''}</small></span>
+      <span class="mini icono">${ic('camion')}</span>
+      <span class="txt"><b>${esc(c.nombre)}${c.placa ? `<span class="placa">${esc(c.placa)}</span>` : ''}</b><small>${esc(c.chofer || 'Sin chofer')}${c.telefono ? ' · ' + esc(c.telefono) : ''}</small></span>
       <span class="num"><small>${S.cargas.filter(x => x.camionId === c.id).length} cargas</small></span>
+      ${ic('der', 'chev')}
     </button>`;
   return `
-    <button class="btn grande" data-a="nuevoCamion">+ Agregar camión</button>
-    ${activos.length ? activos.map(fila).join('') : '<p class="nada">Todavía no hay camiones.</p>'}
-    ${fuera.length ? `<h3 class="dia">Fuera de servicio / vendidos</h3>${fuera.map(fila).join('')}` : ''}`;
+    <div class="stats">
+      <div class="stat"><span class="ico">${ic('camion')}</span><div><small>En servicio</small><b>${activos.length}</b></div></div>
+      <div class="stat"><span class="ico">${ic('persona')}</span><div><small>Choferes</small><b>${new Set(activos.map(c => c.chofer).filter(Boolean)).size}</b></div></div>
+    </div>
+    <button class="btn grande" data-a="nuevoCamion">${ic('mas')} Agregar camión</button>
+    ${activos.length ? `<h3 class="dia">En servicio</h3><div class="grupo">${activos.map(fila).join('')}</div>` : '<p class="nada">Todavía no hay camiones.</p>'}
+    ${fuera.length ? `<h3 class="dia">Fuera de servicio / vendidos</h3><div class="grupo">${fuera.map(fila).join('')}</div>` : ''}`;
 }
 
 // ---------- vista: ajustes ----------
@@ -273,26 +312,32 @@ function vistaMas() {
       <label>Porcentaje para el chofer
         <div class="pct"><input id="ajPct" type="number" inputmode="numeric" min="0" max="100" value="${a.pctChofer}"><span>% chofer · el resto para el dueño</span></div>
       </label>
+      <label>Forma de escribir el dinero
+        <select id="ajFormato">
+          <option value="us" ${a.formato === 'us' ? 'selected' : ''}>Estados Unidos ($1,500.50)</option>
+          <option value="lat" ${a.formato === 'lat' ? 'selected' : ''}>Latinoamérica ($1.500,50)</option>
+        </select>
+      </label>
       <label>Centavos
         <select id="ajDec">
           <option value="auto" ${a.decimales === 'auto' ? 'selected' : ''}>Solo si hay centavos</option>
-          <option value="si" ${a.decimales === 'si' ? 'selected' : ''}>Siempre (1.500,00)</option>
-          <option value="no" ${a.decimales === 'no' ? 'selected' : ''}>Nunca (1.500)</option>
+          <option value="si" ${a.decimales === 'si' ? 'selected' : ''}>Siempre</option>
+          <option value="no" ${a.decimales === 'no' ? 'selected' : ''}>Nunca</option>
         </select>
       </label>
-      <button class="btn" data-a="guardarAjustes">Guardar</button>
+      <button class="btn" data-a="guardarAjustes">${ic('check')} Guardar</button>
     </div>
     <div class="tarjeta">
       <h3>Copia de seguridad</h3>
       <p class="ayuda">Todo se guarda solo en este teléfono. Haz una copia de vez en cuando y guárdala en tu iCloud o mándatela por WhatsApp. Si cambias de teléfono, la recuperas aquí.</p>
-      <button class="btn" data-a="respaldo">💾 Guardar copia de seguridad</button>
-      <button class="btn sec" data-a="recuperar">📂 Recuperar una copia</button>
+      <button class="btn" data-a="respaldo">${ic('bajar')} Guardar copia de seguridad</button>
+      <button class="btn suave" data-a="recuperar">${ic('subir')} Recuperar una copia</button>
       <input type="file" id="archivoRespaldo" accept=".json,application/json" hidden>
     </div>
     <div class="tarjeta">
       <h3>Excel</h3>
       <p class="ayuda">Saca todas las cargas y gastos en un archivo que abre Excel o Numbers.</p>
-      <button class="btn sec" data-a="excel">📊 Exportar a Excel</button>
+      <button class="btn suave" data-a="excel">${ic('tabla')} Exportar a Excel</button>
     </div>
     <div class="tarjeta">
       <h3>Instalar en el iPhone</h3>
@@ -327,12 +372,12 @@ let fotosForm = [], reciboForm = null;
 function pintarFotos() {
   $('#fotos').innerHTML = fotosForm.map((f, i) => `
     <div class="foto"><img src="${f.d}" data-a="verFoto" data-i="${i}" alt=""><button type="button" data-a="quitarFoto" data-i="${i}" aria-label="Quitar foto">×</button></div>`).join('')
-    + `<label class="foto mas">📷<span>Agregar foto</span><input type="file" accept="image/*" multiple data-a="subirFotos" hidden></label>`;
+    + `<label class="foto mas">${ic('camara')}<span>Agregar foto</span><input type="file" accept="image/*" multiple data-a="subirFotos" hidden></label>`;
 }
 function pintarRecibo() {
   $('#recibo').innerHTML = reciboForm
     ? `<div class="foto"><img src="${reciboForm.d}" data-a="verRecibo" alt=""><button type="button" data-a="quitarRecibo" aria-label="Quitar foto">×</button></div>`
-    : `<label class="foto mas">🧾<span>Foto del recibo</span><input type="file" accept="image/*" data-a="subirRecibo" hidden></label>`;
+    : `<label class="foto mas">${ic('recibo')}<span>Foto del recibo</span><input type="file" accept="image/*" data-a="subirRecibo" hidden></label>`;
 }
 
 function formCarga(c) {
@@ -350,10 +395,10 @@ function formCarga(c) {
       <label>Carga / destino <small>(opcional)</small><input name="detalle" value="${esc(c.detalle)}" placeholder="Ej: arena a la obra de Juan"></label>
       <label>Cobrado por la carga<input name="cobrado" inputmode="decimal" value="${aTexto(c.cobrado)}" placeholder="0" data-a="calc"></label>
       <label>Petróleo usado en esta carga<input name="petroleo" inputmode="decimal" value="${aTexto(c.petroleo)}" placeholder="0" data-a="calc"></label>
-      <div class="limpio">Limpio de esta carga: <b id="limpio">${dinero(c.cobrado - c.petroleo)}</b></div>
+      <div class="limpio"><span>Limpio de esta carga</span><b id="limpio">${dinero(c.cobrado - c.petroleo)}</b></div>
       <div class="campo"><span>Fotos de la carga</span><div class="fotos" id="fotos"></div></div>
       <div class="campo"><span>Recibo del petróleo <small>(opcional)</small></span><div class="fotos" id="recibo"></div></div>
-      <button class="btn grande" type="submit">Guardar carga</button>
+      <button class="btn grande" type="submit">${ic('check')} Guardar carga</button>
       ${nuevo ? '' : '<button class="btn borrar" type="button" data-a="borrarCarga">Borrar esta carga</button>'}
     </form>`);
   pintarFotos(); pintarRecibo();
@@ -377,7 +422,7 @@ function formGasto(g) {
         <label class="radio"><input type="radio" name="compartido" value="0" ${g.compartido ? '' : 'checked'}> Solo el dueño <small>(no le afecta al chofer)</small></label>
       </div>
       <div class="campo"><span>Foto del recibo <small>(opcional)</small></span><div class="fotos" id="recibo"></div></div>
-      <button class="btn grande" type="submit">Guardar gasto</button>
+      <button class="btn grande" type="submit">${ic('check')} Guardar gasto</button>
       ${nuevo ? '' : '<button class="btn borrar" type="button" data-a="borrarGasto">Borrar este gasto</button>'}
     </form>`);
   pintarRecibo();
@@ -399,7 +444,7 @@ function formCamion(c) {
       <label>Chofer<input name="chofer" value="${esc(c.chofer)}" placeholder="Nombre del chofer"></label>
       <label>WhatsApp del chofer <small>(con código de país)</small><input name="telefono" type="tel" value="${esc(c.telefono)}" placeholder="Ej: +56 9 1234 5678"></label>
       ${nuevo ? '' : `<label class="check"><input type="checkbox" name="activo" ${c.activo !== false ? 'checked' : ''}> En servicio <small>(quítalo si lo vendiste)</small></label>`}
-      <button class="btn grande" type="submit">Guardar camión</button>
+      <button class="btn grande" type="submit">${ic('check')} Guardar camión</button>
       ${nuevo ? '' : usado ? '<p class="ayuda">Este camión tiene cargas guardadas. Si ya no lo usas, quita “En servicio” para que no salga en la lista.</p>'
         : '<button class="btn borrar" type="button" data-a="borrarCamion">Borrar camión</button>'}
     </form>`);
@@ -407,17 +452,20 @@ function formCamion(c) {
 
 // ---------- PDF de la semana para un chofer ----------
 function pdfSemana(g, lunes) {
-  const p = new PDF(), M = 40, D = 555, azul = '#12233f', gris = '#6b7385';
+  const p = new PDF(), M = 40, D = 555, azul = '#0a52d6', gris = '#6e7891';
   const pie = () => p.texto(M, 820, `${S.aj.negocio} · hecho el ${fCorta(hoy())} ${deISO(hoy()).getFullYear()}`, { t: 8, c: gris });
   const cabecera = () => {
-    p.rect(0, 0, 595, 92, { relleno: azul });
-    p.texto(M, 40, 'LIQUIDACIÓN SEMANAL', { t: 19, b: true, c: '#ffffff' });
-    p.texto(M, 62, S.aj.negocio + (S.aj.dueno ? ' · ' + S.aj.dueno : ''), { t: 11, c: '#c9d3e6' });
-    p.texto(D, 40, 'Día de pago', { t: 9, c: '#c9d3e6', al: 'der' });
-    p.texto(D, 60, 'miércoles ' + fCorta(pagoDe(lunes)) + ' ' + deISO(pagoDe(lunes)).getFullYear(), { t: 13, b: true, c: '#ffffff', al: 'der' });
+    if (logoPDF) p.imagen(logoPDF, M - 4, 26, 130, 52);
+    else p.texto(M, 60, 'ALE', { t: 30, b: true, c: azul });
+    p.texto(D, 42, 'LIQUIDACIÓN SEMANAL', { t: 17, b: true, c: '#0f1b33', al: 'der' });
+    p.texto(D, 62, S.aj.negocio + (S.aj.dueno ? ' · ' + S.aj.dueno : ''), { t: 10, c: gris, al: 'der' });
+    p.rect(M, 92, D - M, 3, { relleno: azul });
+    p.rect(M, 104, D - M, 30, { relleno: '#eaf1ff' });
+    p.texto(M + 12, 123, 'Día de pago', { t: 10, c: '#3a4560' });
+    p.texto(D - 12, 123, 'miércoles ' + fCorta(pagoDe(lunes)) + ' ' + deISO(pagoDe(lunes)).getFullYear(), { t: 11, b: true, c: azul, al: 'der' });
   };
   cabecera();
-  let y = 122;
+  let y = 160;
   p.texto(M, y, 'Chofer', { t: 9, c: gris }); p.texto(230, y, 'Camión', { t: 9, c: gris }); p.texto(410, y, 'Semana', { t: 9, c: gris });
   y += 17;
   p.texto(M, y, p.recortar(g.chofer || 'Sin chofer', 180, 13, true), { t: 13, b: true });
@@ -426,7 +474,7 @@ function pdfSemana(g, lunes) {
   y += 28;
 
   const encabezado = () => {
-    p.rect(M, y, D - M, 22, { relleno: '#e9edf4' });
+    p.rect(M, y, D - M, 22, { relleno: '#eef1f7' });
     p.texto(M + 8, y + 15, 'Fecha', { t: 9, b: true, c: gris });
     p.texto(118, y + 15, 'Carga', { t: 9, b: true, c: gris });
     p.texto(395, y + 15, 'Cobrado', { t: 9, b: true, c: gris, al: 'der' });
@@ -476,8 +524,8 @@ function pdfSemana(g, lunes) {
   y += 4;
   fila('Limpio', dinero(g.limpio), { b: true, t: 13 });
   y += 10;
-  p.rect(bx, y, bw, 52, { relleno: '#1f8a4c' });
-  p.texto(bx + 12, y + 20, `PARA EL CHOFER (${g.pct}%)`, { t: 10, b: true, c: '#d7f5e3' });
+  p.rect(bx, y, bw, 52, { relleno: azul });
+  p.texto(bx + 12, y + 20, `PARA EL CHOFER (${g.pct}%)`, { t: 10, b: true, c: '#d6e4ff' });
   p.texto(D - 12, y + 38, dinero(g.paraChofer), { t: 22, b: true, c: '#ffffff', al: 'der' });
   y += 70;
   fila(`Para el dueño (${100 - g.pct}%)`, dinero(g.paraDueno), { c: gris });
@@ -490,7 +538,7 @@ function pdfSemana(g, lunes) {
     fotos.forEach(({ f, c }, i) => {
       const k = i % 6;
       if (k === 0) {
-        p.pagina(); p.texto(M, 50, 'Fotos de las cargas', { t: 15, b: true, c: azul }); pie();
+        p.pagina(); p.texto(M, 50, 'Fotos de las cargas', { t: 15, b: true, c: '#0f1b33' }); pie();
       }
       const x = M + (k % 2) * (cw + gap), yy = 72 + Math.floor(k / 2) * (ch + 32);
       p.rect(x, yy, cw, ch, { relleno: '#eef1f6' });
@@ -532,12 +580,13 @@ async function recuperar(archivo) {
   } catch { alert('Ese archivo no es una copia de esta app.'); }
 }
 function excel() {
-  const n = v => String(Math.round(v * 100) / 100).replace('.', ',');
+  const us = S.aj.formato === 'us', sep = us ? ',' : ';';
+  const n = v => us ? String(Math.round(v * 100) / 100) : String(Math.round(v * 100) / 100).replace('.', ',');
   const c = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
   const filas = [['Fecha', 'Semana', 'Tipo', 'Camión', 'Chofer', 'Detalle', 'Cobrado', 'Petróleo', 'Otro gasto', 'Quién paga', 'Limpio']];
   S.cargas.forEach(x => filas.push([x.fecha, fRango(lunesDe(x.fecha)), 'Carga', nombreCamion(x.camionId), x.chofer, x.detalle, n(x.cobrado), n(x.petroleo), '', 'Mitad y mitad', n(x.cobrado - x.petroleo)]));
   S.gastos.forEach(x => filas.push([x.fecha, fRango(lunesDe(x.fecha)), x.tipo, nombreCamion(x.camionId), x.chofer, x.detalle, '', '', n(x.monto), x.compartido ? 'Mitad y mitad' : 'Solo dueño', n(x.compartido ? -x.monto : 0)]));
-  const cuerpo = [filas[0], ...filas.slice(1).sort((a, b) => a[0].localeCompare(b[0]))].map(f => f.map(c).join(';')).join('\r\n');
+  const cuerpo = [filas[0], ...filas.slice(1).sort((a, b) => a[0].localeCompare(b[0]))].map(f => f.map(c).join(sep)).join('\r\n');
   compartir(new Blob(['﻿' + cuerpo], { type: 'text/csv' }), `camiones-${hoy()}.csv`);
 }
 
@@ -599,7 +648,7 @@ document.addEventListener('click', async e => {
     }
     case 'guardarAjustes': {
       const pct = Math.min(100, Math.max(0, numero($('#ajPct').value)));
-      S.aj = { ...S.aj, negocio: $('#ajNegocio').value.trim() || 'Mis Camiones', dueno: $('#ajDueno').value.trim(), pctChofer: pct, decimales: $('#ajDec').value };
+      S.aj = { ...S.aj, negocio: $('#ajNegocio').value.trim() || 'ALE', dueno: $('#ajDueno').value.trim(), pctChofer: pct, decimales: $('#ajDec').value, formato: $('#ajFormato').value };
       await db.guardarAjustes(S.aj); pintar(); avisar('Ajustes guardados');
       break;
     }
@@ -676,7 +725,18 @@ $('#visor').addEventListener('click', () => { $('#visor').hidden = true; });
 async function cargarTodo() {
   const [camiones, cargas, gastos, pagos, aj] = await Promise.all([...db.TABLAS.map(db.todos), db.leerAjustes()]);
   Object.assign(S, { camiones, cargas, gastos, pagos, aj: { ...AJ_BASE, ...(aj || {}) } });
+  if (S.aj.negocio === 'Mis Camiones') S.aj.negocio = 'ALE';
 }
+// el logo se pasa a JPEG con fondo blanco para meterlo en el PDF
+let logoPDF = null;
+const img = new Image();
+img.onload = () => {
+  const k = 3, cv = document.createElement('canvas'); cv.width = img.naturalWidth * k; cv.height = img.naturalHeight * k;
+  const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height);
+  g.imageSmoothingQuality = 'high'; g.drawImage(img, 0, 0, cv.width, cv.height);
+  logoPDF = { d: cv.toDataURL('image/jpeg', .92), w: cv.width, h: cv.height };
+};
+img.src = 'logo-ale.png';
 await cargarTodo();
 // si la semana pasada no tiene nada, Pagos abre en la semana actual
 if (!liquidacion(semanaPago).length && liquidacion(lunesDe(hoy())).length) semanaPago = lunesDe(hoy());

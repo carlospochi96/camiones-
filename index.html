@@ -3,12 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Camiones</title>
-  <meta name="theme-color" content="#12233f">
+  <title>ALE</title>
+  <meta name="theme-color" content="#f2f3f7">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Camiones">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="ALE">
   <link rel="apple-touch-icon" href="icono-180.png">
   <link rel="icon" href="icono-192.png">
   <link rel="manifest" href="manifest.webmanifest">
@@ -16,22 +16,23 @@
 </head>
 <body>
   <header id="top">
-    <small id="negocio"></small>
+    <div class="marca"><img src="logo-ale.png" alt="ALE"><small id="negocio"></small></div>
     <h1 id="titulo">Cargas</h1>
   </header>
 
   <main id="vista"></main>
 
   <nav id="tabs">
-    <button data-v="cargas"><span>📦</span>Cargas</button>
-    <button data-v="pagos"><span>💵</span>Pagos</button>
-    <button data-v="camiones"><span>🚚</span>Camiones</button>
-    <button data-v="mas"><span>⚙️</span>Ajustes</button>
+    <img class="logo" src="logo-ale.png" alt="ALE">
+    <button data-v="cargas"><svg class="i" viewBox="0 0 24 24"><path d="M21 8l-9-5-9 5v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg>Cargas</button>
+    <button data-v="pagos"><svg class="i" viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="12" rx="2.5"/><circle cx="12" cy="12" r="2.6"/><path d="M6 9.5v.01M18 14.5v.01"/></svg>Pagos</button>
+    <button data-v="camiones"><svg class="i" viewBox="0 0 24 24"><path d="M2.5 6.5h11v9h-11z"/><path d="M13.5 9.5h4l3 3.2v2.8h-7"/><circle cx="6.5" cy="17" r="1.8"/><circle cx="17" cy="17" r="1.8"/></svg>Camiones</button>
+    <button data-v="mas"><svg class="i" viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>Ajustes</button>
   </nav>
 
   <div id="hoja" hidden>
     <div class="panel">
-      <div class="barra"><h2 id="hojaTitulo"></h2><button id="cerrarHoja" aria-label="Cerrar">×</button></div>
+      <div class="barra"><h2 id="hojaTitulo"></h2><button id="cerrarHoja" aria-label="Cerrar"><svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
       <div id="hojaCuerpo"></div>
     </div>
   </div>

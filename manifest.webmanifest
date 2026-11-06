@@ -1,12 +1,12 @@
 {
-  "name": "Camiones – Pagos a choferes",
-  "short_name": "Camiones",
+  "name": "ALE – Cargas y pagos",
+  "short_name": "ALE",
   "lang": "es",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#f2f4f8",
-  "theme_color": "#12233f",
+  "background_color": "#f2f3f7",
+  "theme_color": "#f2f3f7",
   "icons": [
     { "src": "icono-192.png", "sizes": "192x192", "type": "image/png" },
     { "src": "icono-512.png", "sizes": "512x512", "type": "image/png" },
